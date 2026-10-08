@@ -1,0 +1,79 @@
+from dataclasses import dataclass
+
+import requests
+
+from . import config
+
+
+@dataclass
+class PublishedVideo:
+    file_name: str
+    r2_url: str
+    thumbnail_url: str
+    duration: float
+    resolution: str
+    markers: list[dict]
+    clips: list[dict]
+
+
+def create_session_document(
+    match_id: str,
+    session_name: str,
+    session_type: str,
+    session_date: str,
+    team_id: str,
+    videos: list[PublishedVideo],
+) -> str:
+    doc_id = f"practiceSession-{match_id}"
+
+    video_docs = []
+    for i, v in enumerate(videos):
+        video_docs.append({
+            "_key": f"video-{i}",
+            "fileName": v.file_name,
+            "r2Url": v.r2_url,
+            "thumbnailUrl": v.thumbnail_url,
+            "durationSeconds": round(v.duration, 2),
+            "resolution": v.resolution,
+            "markers": [
+                {"_key": f"m-{i}-{j}", "timeSeconds": m["timeSeconds"], "label": m["label"]}
+                for j, m in enumerate(v.markers)
+            ],
+            "clips": [
+                {
+                    "_key": f"c-{i}-{j}",
+                    "r2Url": c["r2Url"],
+                    "startSeconds": c["startSeconds"],
+                    "endSeconds": c["endSeconds"],
+                    "label": c["label"],
+                }
+                for j, c in enumerate(v.clips)
+            ],
+        })
+
+    doc: dict = {
+        "_id": doc_id,
+        "_type": "practiceSession",
+        "sessionName": session_name,
+        "sessionType": session_type,
+        "sessionDate": session_date,
+        "videos": video_docs,
+    }
+    if team_id:
+        doc["team"] = {"_type": "reference", "_ref": team_id}
+
+    url = (
+        f"https://{config.SANITY_PROJECT_ID}.api.sanity.io"
+        f"/v2024-01-01/data/mutate/{config.SANITY_DATASET}"
+    )
+    resp = requests.post(
+        url,
+        json={"mutations": [{"createOrReplace": doc}]},
+        headers={
+            "Authorization": f"Bearer {config.SANITY_WRITE_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return doc_id

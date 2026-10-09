@@ -14,6 +14,7 @@ class PublishedVideo:
     resolution: str
     markers: list[dict]
     clips: list[dict]
+    analytics: dict | None = None
 
 
 def create_session_document(
@@ -28,7 +29,7 @@ def create_session_document(
 
     video_docs = []
     for i, v in enumerate(videos):
-        video_docs.append({
+        vdoc: dict = {
             "_key": f"video-{i}",
             "fileName": v.file_name,
             "r2Url": v.r2_url,
@@ -49,7 +50,21 @@ def create_session_document(
                 }
                 for j, c in enumerate(v.clips)
             ],
-        })
+        }
+        if v.analytics:
+            a = v.analytics
+            vdoc["analytics"] = {
+                "fieldZones": a.get("fieldZones", []),
+                "goalPressureLeft": a.get("goalPressureLeft", 0),
+                "goalPressureRight": a.get("goalPressureRight", 0),
+                "totalFrames": a.get("totalFrames", 0),
+                "dominantZone": a.get("dominantZone", 0),
+                "activityBuckets": [
+                    {"_key": f"ab-{i}-{k}", **b}
+                    for k, b in enumerate(a.get("activityBuckets", []))
+                ],
+            }
+        video_docs.append(vdoc)
 
     doc: dict = {
         "_id": doc_id,

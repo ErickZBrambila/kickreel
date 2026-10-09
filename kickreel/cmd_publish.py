@@ -8,8 +8,8 @@ from .publish import PublishedVideo, create_session_document
 from .upload import upload_file
 
 
-def run(library: Path, team: str) -> None:
-    print(f"\nKickReel publish: scanning {library}\n")
+def run(library: Path, team: str, dry_run: bool = False) -> None:
+    print(f"\nKickReel publish{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     team_id = config.SANITY_TEAM_U11_ID if team == "u11" else config.SANITY_TEAM_U12_ID
 
@@ -47,6 +47,28 @@ def run(library: Path, team: str) -> None:
 
             print(f"\n  [{video.file_name}]")
 
+            clips_dir = session_dir / "clips"
+
+            if dry_run:
+                thumb_exists = video.cover_path and Path(video.cover_path).exists()
+                print(f"  thumbnail : {'found' if thumb_exists else 'missing'}")
+                for clip in video.clips:
+                    clip_path = clips_dir / clip.file_name
+                    size_mb = clip_path.stat().st_size / 1e6 if clip_path.exists() else 0
+                    status = f"{size_mb:.0f} MB" if clip_path.exists() else "MISSING"
+                    print(f"  {clip.label} — {status}")
+                published_videos.append(PublishedVideo(
+                    file_name=video.file_name,
+                    r2_url="",
+                    thumbnail_url="",
+                    duration=video.duration,
+                    resolution=video.resolution,
+                    markers=video.markers,
+                    clips=[],
+                    analytics=video.analytics or None,
+                ))
+                continue
+
             # Upload thumbnail
             thumb_url = ""
             if video.cover_path and Path(video.cover_path).exists():
@@ -56,7 +78,6 @@ def run(library: Path, team: str) -> None:
 
             # Upload clips
             published_clips = []
-            clips_dir = session_dir / "clips"
             for clip in video.clips:
                 clip_path = clips_dir / clip.file_name
                 if not clip_path.exists():
@@ -85,7 +106,13 @@ def run(library: Path, team: str) -> None:
                 resolution=video.resolution,
                 markers=video.markers,
                 clips=published_clips,
+                analytics=video.analytics or None,
             ))
+
+        if dry_run:
+            print(f"\n  [dry-run] would publish {len(published_videos)} video(s) to Sanity")
+            print(f"  document id would be: practiceSession-{manifest.match_id}")
+            continue
 
         if not published_videos:
             print("  No clips to publish — skipping")

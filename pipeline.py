@@ -37,6 +37,11 @@ def main() -> None:
     p_proc.add_argument("--dry-run", action="store_true", help="Show what clips would be extracted without running ffmpeg")
     p_proc.add_argument("--remove-watermark", action="store_true", help="Blur the XBotGo watermark (slower — requires re-encoding)")
 
+    # analyze
+    p_ana = sub.add_parser("analyze", help="Parse .track files and store analytics in manifests")
+    p_ana.add_argument("--library", required=True, help="Local library folder")
+    p_ana.add_argument("--dry-run", action="store_true", help="Show analytics without writing to manifests")
+
     # publish
     p_pub = sub.add_parser("publish", help="Upload clips to R2 and push to Sanity")
     p_pub.add_argument("--library", required=True, help="Local library folder")
@@ -50,6 +55,13 @@ def main() -> None:
         run(
             source=Path(args.source).expanduser(),
             dest=Path(args.library).expanduser(),
+        )
+
+    elif args.cmd == "analyze":
+        from kickreel.cmd_analyze import run
+        run(
+            library=Path(args.library).expanduser(),
+            dry_run=args.dry_run,
         )
 
     elif args.cmd == "process":

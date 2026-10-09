@@ -30,6 +30,7 @@ class VideoRecord:
     mark_path: str = ""
     markers: list[dict] = field(default_factory=list)
     clips: list[ClipRecord] = field(default_factory=list)
+    analytics: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -54,8 +55,9 @@ def load(session_dir: Path) -> SessionManifest | None:
     data = json.loads(p.read_text())
     videos = [
         VideoRecord(
-            **{k: v for k, v in vd.items() if k != "clips"},
+            **{k: v for k, v in vd.items() if k not in ("clips", "analytics")},
             clips=[ClipRecord(**c) for c in vd.get("clips", [])],
+            analytics=vd.get("analytics", {}),
         )
         for vd in data.pop("videos", [])
     ]

@@ -6,8 +6,8 @@ from .clip import extract_clips, fmt
 from .manifest import ClipRecord, load, save
 
 
-def run(library: Path, pad: int = 15) -> None:
-    print(f"\nKickReel process: scanning {library}\n")
+def run(library: Path, pad: int = 15, dry_run: bool = False, remove_watermark: bool = False) -> None:
+    print(f"\nKickReel process{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     session_dirs = sorted(
         d for d in library.iterdir()
@@ -57,7 +57,20 @@ def run(library: Path, pad: int = 15) -> None:
                     self.time_seconds = t
 
             marker_objs = [_M(m["timeSeconds"]) for m in video.markers]
-            clips = extract_clips(video_path, marker_objs, clips_dir, pad)  # type: ignore[arg-type]
+
+            if dry_run:
+                print(f"  [dry-run] would extract {len(marker_objs)} clip(s):")
+                for m in video.markers:
+                    from .clip import fmt
+                    start = max(0.0, m["timeSeconds"] - pad)
+                    end = min(video.duration, m["timeSeconds"] + pad)
+                    print(f"    {m['label']}  →  {fmt(start)} – {fmt(end)}")
+                any_clips = bool(marker_objs)
+                continue
+
+            if remove_watermark:
+                print(f"  [watermark removal enabled — re-encoding]")
+            clips = extract_clips(video_path, marker_objs, clips_dir, pad, remove_watermark=remove_watermark)  # type: ignore[arg-type]
             print(f"  → {len(clips)} clip(s) extracted")
 
             video.clips = [
@@ -73,7 +86,9 @@ def run(library: Path, pad: int = 15) -> None:
             if clips:
                 any_clips = True
 
-        if any_clips:
+        if dry_run:
+            print(f"\n  [dry-run] no files written")
+        elif any_clips:
             manifest.processed = True
             save(session_dir, manifest)
             print(f"\n  ✓ Manifest updated")

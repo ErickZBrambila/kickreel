@@ -34,11 +34,14 @@ def main() -> None:
     p_proc = sub.add_parser("process", help="Extract highlight clips from offloaded footage")
     p_proc.add_argument("--library", required=True, help="Local library folder")
     p_proc.add_argument("--pad", type=int, default=15, help="Seconds before/after each marker (default: 15)")
+    p_proc.add_argument("--dry-run", action="store_true", help="Show what clips would be extracted without running ffmpeg")
+    p_proc.add_argument("--remove-watermark", action="store_true", help="Blur the XBotGo watermark (slower — requires re-encoding)")
 
     # publish
     p_pub = sub.add_parser("publish", help="Upload clips to R2 and push to Sanity")
     p_pub.add_argument("--library", required=True, help="Local library folder")
     p_pub.add_argument("--team", choices=["u11", "u12"], default="u11")
+    p_pub.add_argument("--dry-run", action="store_true", help="Show what would be uploaded without touching R2 or Sanity")
 
     args = parser.parse_args()
 
@@ -54,6 +57,8 @@ def main() -> None:
         run(
             library=Path(args.library).expanduser(),
             pad=args.pad,
+            dry_run=args.dry_run,
+            remove_watermark=args.remove_watermark,
         )
 
     elif args.cmd == "publish":
@@ -62,6 +67,7 @@ def main() -> None:
         run(
             library=Path(args.library).expanduser(),
             team=args.team,
+            dry_run=args.dry_run,
         )
 
 

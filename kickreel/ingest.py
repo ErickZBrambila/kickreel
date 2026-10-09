@@ -22,6 +22,9 @@ class VideoMeta:
     match_id: str
     markers: list[MarkerEvent]
     cover_path: Path | None
+    track_path: Path | None = None
+    vdata_path: Path | None = None
+    mark_path: Path | None = None
 
     @property
     def resolution(self) -> str:
@@ -48,7 +51,7 @@ def load_sessions(source_dir: Path) -> list[MatchSession]:
     if match_dir.exists():
         for match_file in sorted(match_dir.glob("*.match")):
             try:
-                data = json.loads(match_file.read_text())
+                data = json.loads(match_file.read_text().rstrip("\x00"))
                 info = data["MatchInfo"]
                 match_id = str(int(float(info["MatchId"])))
                 sessions[match_id] = MatchSession(
@@ -93,8 +96,10 @@ def load_sessions(source_dir: Path) -> list[MatchSession]:
                         markers.append(MarkerEvent(type=e["type"], time_seconds=float(e["time"])))
                 except (json.JSONDecodeError, KeyError):
                     pass
+            mark_path_or_none = mark_path if mark_path.exists() else None
 
             cover_path = data_dir / mp4.with_suffix(".cover").name
+            track_path = data_dir / mp4.with_suffix(".track").name
 
             video = VideoMeta(
                 file_name=mp4.name,
@@ -108,6 +113,9 @@ def load_sessions(source_dir: Path) -> list[MatchSession]:
                 match_id=match_id,
                 markers=markers,
                 cover_path=cover_path if cover_path.exists() else None,
+                track_path=track_path if track_path.exists() else None,
+                vdata_path=vdata_path if vdata_path.exists() else None,
+                mark_path=mark_path_or_none,
             )
 
             if match_id in sessions:

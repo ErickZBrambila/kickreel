@@ -25,6 +25,9 @@ class VideoRecord:
     cover_path: str
     duration: float
     resolution: str
+    track_path: str = ""
+    vdata_path: str = ""
+    mark_path: str = ""
     markers: list[dict] = field(default_factory=list)
     clips: list[ClipRecord] = field(default_factory=list)
 

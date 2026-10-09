@@ -34,7 +34,10 @@ def run(source: Path, dest: Path) -> None:
 
             print(f"\n  Copying {video.file_name}  ({size_gb:.1f} GB)…")
             shutil.copy2(video.file_path, video_dest)
-            print(f"  ✓ copied")
+            print(f"  ✓ video copied")
+
+            raw_dir = session_dir / "raw_data"
+            raw_dir.mkdir(parents=True, exist_ok=True)
 
             cover_dest_str = ""
             if video.cover_path:
@@ -42,6 +45,25 @@ def run(source: Path, dest: Path) -> None:
                 cover_dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(video.cover_path, cover_dest)
                 cover_dest_str = str(cover_dest)
+
+            track_dest_str = ""
+            if video.track_path:
+                track_dest = raw_dir / video.track_path.name
+                shutil.copy2(video.track_path, track_dest)
+                track_dest_str = str(track_dest)
+                print(f"  ✓ track data copied  ({video.track_path.stat().st_size / 1e6:.1f} MB)")
+
+            vdata_dest_str = ""
+            if video.vdata_path:
+                vdata_dest = raw_dir / video.vdata_path.name
+                shutil.copy2(video.vdata_path, vdata_dest)
+                vdata_dest_str = str(vdata_dest)
+
+            mark_dest_str = ""
+            if video.mark_path:
+                mark_dest = raw_dir / video.mark_path.name
+                shutil.copy2(video.mark_path, mark_dest)
+                mark_dest_str = str(mark_dest)
 
             click_markers = [
                 {"timeSeconds": m.time_seconds, "label": f"{int(m.time_seconds//60)}:{int(m.time_seconds%60):02d}"}
@@ -54,6 +76,9 @@ def run(source: Path, dest: Path) -> None:
                 cover_path=cover_dest_str,
                 duration=video.duration,
                 resolution=video.resolution,
+                track_path=track_dest_str,
+                vdata_path=vdata_dest_str,
+                mark_path=mark_dest_str,
                 markers=click_markers,
             ))
 

@@ -47,13 +47,14 @@ def create_session_document(
                     "startSeconds": c["startSeconds"],
                     "endSeconds": c["endSeconds"],
                     "label": c["label"],
+                    **({"clipType": c["clipType"]} if c.get("clipType") else {}),
                 }
                 for j, c in enumerate(v.clips)
             ],
         }
         if v.analytics:
             a = v.analytics
-            vdoc["analytics"] = {
+            analytics_doc: dict = {
                 "fieldZones": a.get("fieldZones", []),
                 "goalPressureLeft": a.get("goalPressureLeft", 0),
                 "goalPressureRight": a.get("goalPressureRight", 0),
@@ -64,6 +65,15 @@ def create_session_document(
                     for k, b in enumerate(a.get("activityBuckets", []))
                 ],
             }
+            # Per-half fields (added in Phase 2 of analyze step)
+            for key in (
+                "fieldZonesFirstHalf", "fieldZonesSecondHalf",
+                "goalPressureLeftH1", "goalPressureRightH1",
+                "goalPressureLeftH2", "goalPressureRightH2",
+            ):
+                if key in a:
+                    analytics_doc[key] = a[key]
+            vdoc["analytics"] = analytics_doc
         video_docs.append(vdoc)
 
     doc: dict = {

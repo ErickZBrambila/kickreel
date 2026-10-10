@@ -16,6 +16,7 @@ class ClipRecord:
     marker_time: float
     label: str
     r2_url: str = ""
+    clip_type: str = ""  # "highlight" | "goal" | "celebration" — set manually in Sanity or via pipeline
 
 
 @dataclass

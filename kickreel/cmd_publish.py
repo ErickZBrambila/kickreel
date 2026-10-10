@@ -92,12 +92,15 @@ def run(library: Path, team: str, dry_run: bool = False) -> None:
                 clip.r2_url = clip_url
                 size_mb = clip_path.stat().st_size / 1e6
                 print(f"  ✓ {clip.label} ({size_mb:.0f} MB)")
-                published_clips.append({
+                clip_doc: dict = {
                     "r2Url": clip_url,
                     "startSeconds": clip.start_seconds,
                     "endSeconds": clip.end_seconds,
                     "label": clip.label,
-                })
+                }
+                if clip.clip_type:
+                    clip_doc["clipType"] = clip.clip_type
+                published_clips.append(clip_doc)
 
             if not published_clips:
                 continue

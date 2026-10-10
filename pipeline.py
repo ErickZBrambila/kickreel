@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """
-KickReel — three decoupled steps:
+KickReel — decoupled pipeline steps:
 
-  offload   Copy SD card to local library (free the card immediately)
-  process   Extract highlight clips from local footage
-  publish   Upload clips to R2 + push metadata to Sanity
+  offload       Copy SD card to local library (free the card immediately)
+  process       Extract highlight clips from local footage
+  analyze       Parse .track files into field heatmap + activity analytics
+  publish       Upload clips to R2 + push metadata to Sanity
+  drive-upload  Upload full game videos to Google Drive (resumable, 18 GB+)
 
 Examples:
-  python pipeline.py offload  --source /Volumes/Untitled/falcon --library ~/Movies/KickReel
-  python pipeline.py process  --library ~/Movies/KickReel
-  python pipeline.py publish  --library ~/Movies/KickReel --team u11
+  python pipeline.py offload       --source /Volumes/Untitled/falcon --library ~/Movies/KickReel
+  python pipeline.py process       --library ~/Movies/KickReel
+  python pipeline.py analyze       --library ~/Movies/KickReel
+  python pipeline.py publish       --library ~/Movies/KickReel --team u11
+  python pipeline.py drive-upload  --library ~/Movies/KickReel
+  python pipeline.py drive-upload  --library ~/Movies/KickReel --dry-run
+  python pipeline.py drive-upload  --auth-only
 """
 
 import argparse
@@ -48,6 +54,12 @@ def main() -> None:
     p_pub.add_argument("--team", choices=["u11", "u12"], default="u11")
     p_pub.add_argument("--dry-run", action="store_true", help="Show what would be uploaded without touching R2 or Sanity")
 
+    # drive-upload
+    p_drive = sub.add_parser("drive-upload", help="Upload full game videos to Google Drive")
+    p_drive.add_argument("--library", help="Local library folder")
+    p_drive.add_argument("--dry-run", action="store_true", help="Show what would be uploaded without uploading")
+    p_drive.add_argument("--auth-only", action="store_true", help="Run OAuth flow and exit (no upload)")
+
     args = parser.parse_args()
 
     if args.cmd == "offload":
@@ -81,6 +93,21 @@ def main() -> None:
             team=args.team,
             dry_run=args.dry_run,
         )
+
+    elif args.cmd == "drive-upload":
+        from kickreel.drive import get_service
+        if args.auth_only:
+            print("Running Google OAuth flow …")
+            get_service()
+            print("✓ Authenticated. Token saved.")
+        else:
+            if not args.library:
+                parser.error("drive-upload requires --library (or --auth-only)")
+            from kickreel.cmd_drive_upload import run
+            run(
+                library=Path(args.library).expanduser(),
+                dry_run=args.dry_run,
+            )
 
 
 if __name__ == "__main__":

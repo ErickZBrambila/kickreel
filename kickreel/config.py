@@ -19,3 +19,8 @@ SANITY_TEAM_U12_ID = os.environ.get("SANITY_TEAM_U12_ID", "")
 
 CLIPS_PAD_SECONDS = int(os.environ.get("CLIPS_PAD_SECONDS", "15"))
 CLIPS_OUTPUT_DIR = Path(os.environ.get("CLIPS_OUTPUT_DIR", "/tmp/kickreel-clips"))
+
+# Google Drive
+DRIVE_CREDENTIALS_PATH = os.environ.get("DRIVE_CREDENTIALS_PATH", "~/.config/kickreel/drive_credentials.json")
+DRIVE_TOKEN_PATH = os.environ.get("DRIVE_TOKEN_PATH", "~/.config/kickreel/drive_token.json")
+DRIVE_ROOT_FOLDER = os.environ.get("DRIVE_ROOT_FOLDER", "KickReel")

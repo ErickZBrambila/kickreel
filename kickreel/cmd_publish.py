@@ -35,6 +35,10 @@ def run(library: Path, team: str, dry_run: bool = False) -> None:
             print(f"[skip] {manifest.session_name} — not yet processed")
             continue
 
+        has_analytics = any(v.analytics for v in manifest.videos if v.track_path)
+        if not has_analytics and any(v.track_path for v in manifest.videos):
+            print(f"  Warning: no analytics found — run 'analyze' before 'publish' for heatmap data")
+
         print(f"{'─'*50}")
         print(f"Session : {manifest.session_name}  [{manifest.session_type}]")
 

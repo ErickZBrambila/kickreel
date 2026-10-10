@@ -28,6 +28,8 @@ class VideoRecord:
     track_path: str = ""
     vdata_path: str = ""
     mark_path: str = ""
+    drive_file_id: str = ""
+    drive_url: str = ""
     markers: list[dict] = field(default_factory=list)
     clips: list[ClipRecord] = field(default_factory=list)
     analytics: dict = field(default_factory=dict)
@@ -48,6 +50,10 @@ class SessionManifest:
     videos: list[VideoRecord] = field(default_factory=list)
 
 
+_VIDEO_FIELDS = {f.name for f in VideoRecord.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+_SESSION_FIELDS = {f.name for f in SessionManifest.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+
+
 def load(session_dir: Path) -> SessionManifest | None:
     p = session_dir / MANIFEST_NAME
     if not p.exists():
@@ -55,13 +61,13 @@ def load(session_dir: Path) -> SessionManifest | None:
     data = json.loads(p.read_text())
     videos = [
         VideoRecord(
-            **{k: v for k, v in vd.items() if k not in ("clips", "analytics")},
+            **{k: v for k, v in vd.items() if k in _VIDEO_FIELDS and k not in ("clips", "analytics")},
             clips=[ClipRecord(**c) for c in vd.get("clips", [])],
             analytics=vd.get("analytics", {}),
         )
         for vd in data.pop("videos", [])
     ]
-    return SessionManifest(**data, videos=videos)
+    return SessionManifest(**{k: v for k, v in data.items() if k in _SESSION_FIELDS}, videos=videos)
 
 
 def save(session_dir: Path, manifest: SessionManifest) -> None:

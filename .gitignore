@@ -4,3 +4,16 @@ __pycache__/
 *.pyo
 .DS_Store
 /tmp/
+
+# Google Drive OAuth token (contains refresh token — never commit)
+drive_token.json
+
+# Video and raw camera files — too large for git
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.m4v
+*.track
+*.vdata
+*.mark

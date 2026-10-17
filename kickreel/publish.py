@@ -24,8 +24,13 @@ def create_session_document(
     session_date: str,
     team_id: str,
     videos: list[PublishedVideo],
+    home_team: str = "",
+    away_team: str = "",
 ) -> str:
     doc_id = f"practiceSession-{match_id}"
+
+    if home_team and away_team:
+        session_name = f"{session_name} - {home_team} VS {away_team}"
 
     video_docs = []
     for i, v in enumerate(videos):
@@ -73,6 +78,11 @@ def create_session_document(
             ):
                 if key in a:
                     analytics_doc[key] = a[key]
+            if a.get("goalEvents"):
+                analytics_doc["goalEvents"] = [
+                    {"_key": f"ge-{i}-{k}", **e}
+                    for k, e in enumerate(a["goalEvents"])
+                ]
             vdoc["analytics"] = analytics_doc
         video_docs.append(vdoc)
 

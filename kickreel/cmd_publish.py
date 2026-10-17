@@ -8,7 +8,7 @@ from .publish import PublishedVideo, create_session_document
 from .upload import upload_file
 
 
-def run(library: Path, team: str, dry_run: bool = False) -> None:
+def run(library: Path, team: str, dry_run: bool = False, match_id: str | None = None) -> None:
     print(f"\nKickReel publish{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     team_id = config.SANITY_TEAM_U11_ID if team == "u11" else config.SANITY_TEAM_U12_ID
@@ -16,6 +16,7 @@ def run(library: Path, team: str, dry_run: bool = False) -> None:
     session_dirs = sorted(
         d for d in library.iterdir()
         if d.is_dir() and (d / "kickreel.json").exists()
+        and (match_id is None or d.name.endswith(match_id))
     )
 
     if not session_dirs:
@@ -133,6 +134,8 @@ def run(library: Path, team: str, dry_run: bool = False) -> None:
             session_date=manifest.session_date,
             team_id=team_id,
             videos=published_videos,
+            home_team=manifest.home_team,
+            away_team=manifest.away_team,
         )
         manifest.published = True
         manifest.sanity_doc_id = doc_id

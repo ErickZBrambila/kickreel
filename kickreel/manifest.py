@@ -31,6 +31,7 @@ class VideoRecord:
     mark_path: str = ""
     drive_file_id: str = ""
     drive_url: str = ""
+    half_offset_seconds: float = 0.0  # game-clock offset at recording start (e.g. 2700 = 2nd half)
     markers: list[dict] = field(default_factory=list)
     clips: list[ClipRecord] = field(default_factory=list)
     analytics: dict = field(default_factory=dict)

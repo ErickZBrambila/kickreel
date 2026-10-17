@@ -6,12 +6,13 @@ from .analyze import analyze_track, analytics_to_dict
 from .manifest import load, save
 
 
-def run(library: Path, dry_run: bool = False) -> None:
+def run(library: Path, dry_run: bool = False, match_id: str | None = None) -> None:
     print(f"\nKickReel analyze{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     session_dirs = sorted(
         d for d in library.iterdir()
         if d.is_dir() and (d / "kickreel.json").exists()
+        and (match_id is None or d.name.endswith(match_id))
     )
 
     if not session_dirs:
@@ -33,7 +34,7 @@ def run(library: Path, dry_run: bool = False) -> None:
                 continue
 
             track_path = Path(video.track_path)
-            analytics = analyze_track(track_path)
+            analytics = analyze_track(track_path, video_duration=video.duration or None, half_offset=video.half_offset_seconds)
             if not analytics:
                 print(f"  [{video.file_name}] could not parse track file")
                 continue
@@ -43,6 +44,23 @@ def run(library: Path, dry_run: bool = False) -> None:
             print(f"  Field zones : {analytics.field_zones}  (dominant: {analytics.dominant_zone})")
             print(f"  Goal press  : L={analytics.goal_pressure_left}  R={analytics.goal_pressure_right}")
             print(f"  Buckets     : {len(analytics.activity_buckets)} × 30s")
+
+            # Goal events — filter to video duration, sorted by confidence
+            dur = video.duration
+            in_video = [e for e in analytics.goal_events if e.time_seconds <= dur]
+            if in_video:
+                print(f"  Goal events : {len(in_video)} candidate(s)")
+                for e in sorted(in_video, key=lambda x: -x.confidence):
+                    markers = [m["timeSeconds"] for m in video.markers]
+                    near = min((abs(e.time_seconds - ms) for ms in markers), default=999)
+                    near_flag = f"  ← marker {near:.0f}s away" if near <= 60 else ""
+                    print(
+                        f"    {e.label:>6}  conf={e.confidence:.2f}  {e.side:5}  "
+                        f"minD={e.ball_gate_min_d:.1f}  crowd={e.crowd_spike_pct:+.0f}%  "
+                        f"ballLost={e.ball_lost_after}{near_flag}"
+                    )
+            else:
+                print(f"  Goal events : none detected")
 
             if not dry_run:
                 video.analytics = analytics_to_dict(analytics)

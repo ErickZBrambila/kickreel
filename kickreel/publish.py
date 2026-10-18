@@ -27,7 +27,8 @@ def create_session_document(
     home_team: str = "",
     away_team: str = "",
 ) -> str:
-    doc_id = f"practiceSession-{match_id}"
+    doc_type = "gameSession" if session_type == "GAME" else "practiceSession"
+    doc_id = f"{doc_type}-{match_id}"
 
     if home_team and away_team:
         session_name = f"{session_name} - {home_team} VS {away_team}"
@@ -88,7 +89,7 @@ def create_session_document(
 
     doc: dict = {
         "_id": doc_id,
-        "_type": "practiceSession",
+        "_type": doc_type,
         "sessionName": session_name,
         "sessionType": session_type,
         "sessionDate": session_date,

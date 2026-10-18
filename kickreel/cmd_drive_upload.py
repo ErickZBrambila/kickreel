@@ -21,12 +21,13 @@ def _patch_sanity_drive_url(doc_id: str, video_index: int, drive_url: str) -> No
         print(f"  Warning: Sanity patch failed: {r.status_code} {r.text}")
 
 
-def run(library: Path, dry_run: bool = False) -> None:
+def run(library: Path, dry_run: bool = False, match_id: str | None = None) -> None:
     print(f"\nKickReel drive-upload{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     session_dirs = sorted(
         d for d in library.iterdir()
         if d.is_dir() and (d / "kickreel.json").exists()
+        and (match_id is None or d.name.endswith(match_id))
     )
 
     if not session_dirs:

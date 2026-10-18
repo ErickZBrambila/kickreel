@@ -62,6 +62,7 @@ def main() -> None:
     p_drive.add_argument("--library", help="Local library folder")
     p_drive.add_argument("--dry-run", action="store_true", help="Show what would be uploaded without uploading")
     p_drive.add_argument("--auth-only", action="store_true", help="Run OAuth flow and exit (no upload)")
+    p_drive.add_argument("--match-id", help="Only upload this match ID")
 
     args = parser.parse_args()
 
@@ -113,6 +114,7 @@ def main() -> None:
             run(
                 library=Path(args.library).expanduser(),
                 dry_run=args.dry_run,
+                match_id=args.match_id,
             )
 
 

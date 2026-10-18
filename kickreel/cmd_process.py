@@ -6,12 +6,13 @@ from .clip import extract_clips, fmt
 from .manifest import ClipRecord, load, save
 
 
-def run(library: Path, pad: int = 15, dry_run: bool = False, remove_watermark: bool = False) -> None:
+def run(library: Path, pad: int = 15, dry_run: bool = False, remove_watermark: bool = False, match_id: str | None = None) -> None:
     print(f"\nKickReel process{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     session_dirs = sorted(
         d for d in library.iterdir()
         if d.is_dir() and (d / "kickreel.json").exists()
+        and (match_id is None or d.name.endswith(match_id))
     )
 
     if not session_dirs:

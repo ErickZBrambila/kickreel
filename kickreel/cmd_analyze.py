@@ -6,7 +6,7 @@ from .analyze import analyze_track, analytics_to_dict
 from .manifest import load, save
 
 
-def run(library: Path, dry_run: bool = False, match_id: str | None = None) -> None:
+def run(library: Path, dry_run: bool = False, match_id: str | None = None, attack_direction: str | None = None) -> None:
     print(f"\nKickReel analyze{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     session_dirs = sorted(
@@ -27,6 +27,15 @@ def run(library: Path, dry_run: bool = False, match_id: str | None = None) -> No
         print(f"{'─'*50}")
         print(f"Session : {manifest.session_name}  [{manifest.session_type}]")
 
+        # Store attack direction in manifest if provided via CLI
+        if attack_direction is not None and manifest.h1_attack_side != attack_direction:
+            manifest.h1_attack_side = attack_direction
+            print(f"  h1_attack_side set to '{attack_direction}'")
+
+        effective_attack_side = manifest.h1_attack_side  # use manifest value (may have been set previously)
+        if effective_attack_side:
+            print(f"  Attack filter: H1={effective_attack_side}  H2={'left' if effective_attack_side == 'right' else 'right'}")
+
         any_analytics = False
         for video in manifest.videos:
             if not video.track_path:
@@ -34,7 +43,12 @@ def run(library: Path, dry_run: bool = False, match_id: str | None = None) -> No
                 continue
 
             track_path = Path(video.track_path)
-            analytics = analyze_track(track_path, video_duration=video.duration or None, half_offset=video.half_offset_seconds)
+            analytics = analyze_track(
+                track_path,
+                video_duration=video.duration or None,
+                half_offset=video.half_offset_seconds,
+                h1_attack_side=effective_attack_side,
+            )
             if not analytics:
                 print(f"  [{video.file_name}] could not parse track file")
                 continue

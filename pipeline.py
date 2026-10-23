@@ -66,6 +66,7 @@ def main() -> None:
     p_ana.add_argument("--library", required=True, help="Local library folder")
     p_ana.add_argument("--dry-run", action="store_true", help="Show analytics without writing to manifests")
     p_ana.add_argument("--match-id", help="Only analyze this match ID")
+    p_ana.add_argument("--attack-direction", choices=["right", "left"], help="H1 attack direction (right=outx>1700 goal). Stored in manifest and used to filter Ball TSz shots to our team only.")
 
     # publish
     p_pub = sub.add_parser("publish", help="Upload clips to R2 and push to Sanity")
@@ -113,6 +114,7 @@ def main() -> None:
             library=Path(args.library).expanduser(),
             dry_run=args.dry_run,
             match_id=args.match_id,
+            attack_direction=getattr(args, "attack_direction", None),
         )
 
     elif args.cmd == "process":

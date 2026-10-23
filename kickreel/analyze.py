@@ -358,7 +358,12 @@ def _detect_shot_events_tsz(
     return merged
 
 
-def analyze_track(track_path: Path, video_duration: float | None = None, half_offset: float = 0.0) -> VideoAnalytics | None:
+def analyze_track(
+    track_path: Path,
+    video_duration: float | None = None,
+    half_offset: float = 0.0,
+    h1_attack_side: str | None = None,  # "right" | "left" | None=both
+) -> VideoAnalytics | None:
     if not track_path.exists():
         return None
 
@@ -471,8 +476,17 @@ def analyze_track(track_path: Path, video_duration: float | None = None, half_of
             if tsz:
                 speed = int(tsz.group(1))
                 outx = int(tsz.group(2))
-                if speed >= _TSZ_MIN_SPEED and (outx > _TSZ_OUTX_RIGHT or outx < _TSZ_OUTX_LEFT):
-                    tsz_shot_frames.append((current.rel_t, current.yaw, outx, speed))
+                if speed >= _TSZ_MIN_SPEED:
+                    game_t_tsz = current.rel_t + half_offset
+                    in_h2_tsz = game_t_tsz >= HALFTIME_SECONDS
+                    if h1_attack_side is None:
+                        keep = outx > _TSZ_OUTX_RIGHT or outx < _TSZ_OUTX_LEFT
+                    else:
+                        # H1 attack side, flips in H2
+                        attacks_right_now = (h1_attack_side == "right") != in_h2_tsz
+                        keep = outx > _TSZ_OUTX_RIGHT if attacks_right_now else outx < _TSZ_OUTX_LEFT
+                    if keep:
+                        tsz_shot_frames.append((current.rel_t, current.yaw, outx, speed))
 
         # Shot detection: STFC from endSide data (standalone line or appended to GoalGate line)
         if "endSide" in line:
@@ -495,7 +509,20 @@ def analyze_track(track_path: Path, video_duration: float | None = None, half_of
     elif tsz_shot_frames:
         # fw 5.1+: Ball TSz pixel-trajectory shot detection
         tsz_frames_clipped = [f for f in tsz_shot_frames if f[0] <= (video_duration or float("inf"))]
-        analytics.shot_events = _detect_shot_events_tsz(tsz_frames_clipped, analytics.goal_events, half_offset=half_offset)
+        raw_events = _detect_shot_events_tsz(tsz_frames_clipped, analytics.goal_events, half_offset=half_offset)
+        # Optional post-filter: track-file trajectory verification (rb, angle, ball_y)
+        try:
+            from .shot_verify import verify_shots
+            verified = verify_shots(
+                [e.time_seconds for e in raw_events],
+                track_path,
+                h1_attack_side=h1_attack_side,
+                half_offset=half_offset,
+            )
+            keep = {r.time_seconds for r in verified if r.verdict == "verified"}
+            analytics.shot_events = [e for e in raw_events if e.time_seconds in keep]
+        except Exception:
+            analytics.shot_events = raw_events  # fall back if verify unavailable
     analytics.shots_on_target = len(analytics.shot_events)
     analytics.saves = sum(1 for s in analytics.shot_events if not s.resulted_in_goal)
 

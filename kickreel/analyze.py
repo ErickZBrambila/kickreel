@@ -23,6 +23,12 @@ _CROWD_WINDOW_S = 12          # look forward this far for post-event celebration
 _SHOT_MERGE_GAP_S = 30        # merge STFC events within this window into one shot
 _SHOT_GOAL_WINDOW_S = 10      # shot → goal detected within this many seconds = resulted_in_goal
 
+# Ball TSz shot detection (fw 5.1+ — no BallGate, uses pixel trajectory instead)
+_TSZ_MIN_SPEED = 150          # minimum ball speed magnitude (m field in Ball TSz line)
+_TSZ_OUTX_RIGHT = 1700        # ball at/past this x → heading toward right goal (FHD: 1920px wide)
+_TSZ_OUTX_LEFT = 350          # ball at/below this x → heading toward left goal
+_TSZ_CLUSTER_GAP_S = 2.0      # frames within this gap = same shot event
+
 
 @dataclass
 class ActivityBucket:
@@ -90,6 +96,8 @@ _ballgate_inline = re.compile(r"BallGate d([\d.]+)/[\d.]+W near(\d+)")
 _goalgate_any = re.compile(r"GoalGate[LR]V[01]/\d")   # LV0, LV1, RV0, RV1
 _ball_tracked_pat = re.compile(r"^Ball[12] (?!Fail)")
 _endside_pat = re.compile(r"STFC(\d+)")
+# fw 5.1: Ball TSz line — extract speed (m) and predicted exit x (outx)
+_ball_tsz_pat = re.compile(r"Ball[012] TSz\d+.*\bm(\d+)\).*ball\(\d+,\d+\) outx(-?\d+)")
 
 
 @dataclass
@@ -284,6 +292,72 @@ def _detect_shot_events(
     return merged
 
 
+def _detect_shot_events_tsz(
+    tsz_frames: list[tuple[float, float, int, int]],  # (rel_t, yaw, outx, speed)
+    goal_events: list[GoalEvent],
+    half_offset: float = 0.0,
+) -> list[ShotEvent]:
+    """Detect shots from Ball TSz trajectory data (fw 5.1+, no BallGate).
+
+    A shot is flagged when the ball moves fast (m >= _TSZ_MIN_SPEED) toward a
+    goal mouth: outx > _TSZ_OUTX_RIGHT (right goal) or outx < _TSZ_OUTX_LEFT
+    (left goal).  Frames within _TSZ_CLUSTER_GAP_S are the same shot; events
+    within _SHOT_MERGE_GAP_S are merged (keep earliest).
+    """
+    candidates: list[ShotEvent] = []
+    if not tsz_frames:
+        return candidates
+
+    cur_cluster: list[tuple[float, float, int, int]] = [tsz_frames[0]]
+    for frame in tsz_frames[1:]:
+        if frame[0] - cur_cluster[-1][0] <= _TSZ_CLUSTER_GAP_S:
+            cur_cluster.append(frame)
+        else:
+            first = cur_cluster[0]
+            avg_yaw = sum(f[1] for f in cur_cluster) / len(cur_cluster)
+            in_h2 = (first[0] + half_offset) >= HALFTIME_SECONDS
+            # Direction from avg outx: right-side exit → right goal, left-side → left goal
+            avg_outx = sum(f[2] for f in cur_cluster) / len(cur_cluster)
+            looking_left = avg_outx < (_TSZ_OUTX_LEFT + _TSZ_OUTX_RIGHT) / 2
+            if in_h2:
+                looking_left = not looking_left
+            candidates.append(ShotEvent(
+                time_seconds=first[0],
+                label=_fmt(first[0]),
+                side="left" if looking_left else "right",
+            ))
+            cur_cluster = [frame]
+
+    # flush last cluster
+    first = cur_cluster[0]
+    avg_yaw = sum(f[1] for f in cur_cluster) / len(cur_cluster)
+    in_h2 = (first[0] + half_offset) >= HALFTIME_SECONDS
+    avg_outx = sum(f[2] for f in cur_cluster) / len(cur_cluster)
+    looking_left = avg_outx < (_TSZ_OUTX_LEFT + _TSZ_OUTX_RIGHT) / 2
+    if in_h2:
+        looking_left = not looking_left
+    candidates.append(ShotEvent(
+        time_seconds=first[0],
+        label=_fmt(first[0]),
+        side="left" if looking_left else "right",
+    ))
+
+    candidates.sort(key=lambda e: e.time_seconds)
+    merged: list[ShotEvent] = []
+    for cand in candidates:
+        if merged and cand.time_seconds - merged[-1].time_seconds < _SHOT_MERGE_GAP_S:
+            continue
+        merged.append(cand)
+
+    for shot in merged:
+        for goal in goal_events:
+            if 0 <= goal.time_seconds - shot.time_seconds <= _SHOT_GOAL_WINDOW_S:
+                shot.resulted_in_goal = True
+                break
+
+    return merged
+
+
 def analyze_track(track_path: Path, video_duration: float | None = None, half_offset: float = 0.0) -> VideoAnalytics | None:
     if not track_path.exists():
         return None
@@ -306,6 +380,7 @@ def analyze_track(track_path: Path, video_duration: float | None = None, half_of
 
     # Single pass: build per-frame contexts and accumulate all analytics simultaneously
     frames: list[_FrameCtx] = []
+    tsz_shot_frames: list[tuple[float, float, int, int]] = []  # (rel_t, yaw, outx, speed) for fw5.1
     current: _FrameCtx | None = None
     t0_seconds: float | None = None
 
@@ -388,10 +463,16 @@ def analyze_track(track_path: Path, video_duration: float | None = None, half_of
                     analytics.goal_pressure_right_h1 += 1
             continue
 
-        # Ball tracking status
+        # Ball tracking status + fw5.1 TSz shot detection
         if line.startswith("Ball"):
             if _ball_tracked_pat.match(line):
                 current.ball_tracked = True
+            tsz = _ball_tsz_pat.search(line)
+            if tsz:
+                speed = int(tsz.group(1))
+                outx = int(tsz.group(2))
+                if speed >= _TSZ_MIN_SPEED and (outx > _TSZ_OUTX_RIGHT or outx < _TSZ_OUTX_LEFT):
+                    tsz_shot_frames.append((current.rel_t, current.yaw, outx, speed))
 
         # Shot detection: STFC from endSide data (standalone line or appended to GoalGate line)
         if "endSide" in line:
@@ -407,14 +488,16 @@ def analyze_track(track_path: Path, video_duration: float | None = None, half_of
 
     goal_frames = frames if video_duration is None else [f for f in frames if f.rel_t <= video_duration]
     analytics.goal_events = _detect_goal_events(goal_frames, half_offset=half_offset)
-    # Shot detection via STFC is only reliable on firmware < 5.1 (BallGate format).
-    # fw 5.1+ switched to Ball TSz pixel coords; STFC now tracks player zone-entry, not shots.
-    # Disable until Ball TSz parsing is implemented.
     has_ball_gate = any(f.ball_gate_d is not None for f in goal_frames)
     if has_ball_gate:
+        # fw < 5.1: STFC-based shot detection (reliable with BallGate)
         analytics.shot_events = _detect_shot_events(goal_frames, analytics.goal_events, half_offset=half_offset)
-        analytics.shots_on_target = len(analytics.shot_events)
-        analytics.saves = sum(1 for s in analytics.shot_events if not s.resulted_in_goal)
+    elif tsz_shot_frames:
+        # fw 5.1+: Ball TSz pixel-trajectory shot detection
+        tsz_frames_clipped = [f for f in tsz_shot_frames if f[0] <= (video_duration or float("inf"))]
+        analytics.shot_events = _detect_shot_events_tsz(tsz_frames_clipped, analytics.goal_events, half_offset=half_offset)
+    analytics.shots_on_target = len(analytics.shot_events)
+    analytics.saves = sum(1 for s in analytics.shot_events if not s.resulted_in_goal)
 
     return analytics
 

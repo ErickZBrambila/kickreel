@@ -78,18 +78,30 @@ def run(library: Path, dry_run: bool = False, match_id: str | None = None) -> No
 
             duration = probe_duration(video_path)
 
+            # Goal clip marker times — use these as ground-truth goal timestamps.
+            # Any shot within _SHOT_GOAL_WINDOW_S before a goal clip is skipped
+            # (it already has its own goal clip).
+            goal_marker_times = [
+                c.marker_time for c in video.clips if c.clip_type == "goal"
+            ]
+
             # Remove any stale shot clips from a previous compile run
             video.clips = [c for c in video.clips if c.clip_type != "shot_on_target"]
 
-            print(f"\n  [{video.file_name}]  {len(shot_events)} shot(s)")
+            print(f"\n  [{video.file_name}]  {len(shot_events)} shot(s)  ({len(goal_marker_times)} goal markers)")
+
+            _SHOT_GOAL_WINDOW_S = 10  # seconds after a shot that a goal clip can confirm it
 
             for event in shot_events:
                 t = event["timeSeconds"]
                 label_time = event["label"]
-                resulted_in_goal = event.get("resultedInGoal", False)
 
-                prefix = "Shot (Goal)" if resulted_in_goal else "Save"
-                label = f"{prefix} · {label_time}"
+                # Skip if a goal clip falls within the shot window (shot resulted in a goal)
+                if any(0 <= g - t <= _SHOT_GOAL_WINDOW_S for g in goal_marker_times):
+                    print(f"    [skip — goal] {label_time}")
+                    continue
+
+                label = f"Save · {label_time}"
                 out = clips_dir / f"{video_path.stem}_shot_{int(t):04d}s.mp4"
 
                 if dry_run:

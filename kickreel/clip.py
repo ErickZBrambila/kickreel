@@ -58,7 +58,7 @@ def extract_clips(
     remove_watermark: bool = False,
 ) -> list[Clip]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    duration = _probe_duration(video_path)
+    duration = probe_duration(video_path)
     clips: list[Clip] = []
     seen: list[float] = []
     clip_num = 0
@@ -120,7 +120,7 @@ def extract_clips(
     return clips
 
 
-def _probe_duration(video_path: Path) -> float:
+def probe_duration(video_path: Path) -> float:
     result = subprocess.run(
         [
             "ffprobe", "-v", "quiet",

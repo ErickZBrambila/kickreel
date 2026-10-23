@@ -62,6 +62,16 @@ def run(library: Path, dry_run: bool = False, match_id: str | None = None) -> No
             else:
                 print(f"  Goal events : none detected")
 
+            # Shot events
+            shot_in_video = [e for e in analytics.shot_events if e.time_seconds <= (video.duration or float("inf"))]
+            goals_from_shots = sum(1 for e in shot_in_video if e.resulted_in_goal)
+            saves = analytics.saves
+            print(f"  Shots       : {analytics.shots_on_target} on target  ({saves} saves, {goals_from_shots} goals)")
+            if shot_in_video:
+                first_half = [e for e in shot_in_video if e.time_seconds < 2400]
+                second_half = [e for e in shot_in_video if e.time_seconds >= 2400]
+                print(f"    H1: {len(first_half)} shots  H2: {len(second_half)} shots")
+
             if not dry_run:
                 video.analytics = analytics_to_dict(analytics)
                 any_analytics = True

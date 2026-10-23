@@ -26,9 +26,11 @@ def create_session_document(
     videos: list[PublishedVideo],
     home_team: str = "",
     away_team: str = "",
+    existing_doc_id: str = "",
 ) -> str:
     doc_type = "gameSession" if session_type == "GAME" else "practiceSession"
-    doc_id = f"{doc_type}-{match_id}"
+    # Honour an existing Sanity document ID to avoid creating a duplicate on re-publish
+    doc_id = existing_doc_id if existing_doc_id else f"{doc_type}-{match_id}"
 
     if home_team and away_team:
         session_name = f"{session_name} - {home_team} VS {away_team}"
@@ -54,6 +56,8 @@ def create_session_document(
                     "endSeconds": c["endSeconds"],
                     "label": c["label"],
                     **({"clipType": c["clipType"]} if c.get("clipType") else {}),
+                    **({"playerName": c["playerName"]} if c.get("playerName") else {}),
+                    **({"assistPlayerName": c["assistPlayerName"]} if c.get("assistPlayerName") else {}),
                 }
                 for j, c in enumerate(v.clips)
             ],
@@ -83,6 +87,14 @@ def create_session_document(
                 analytics_doc["goalEvents"] = [
                     {"_key": f"ge-{i}-{k}", **e}
                     for k, e in enumerate(a["goalEvents"])
+                ]
+            for key in ("shotsOnTarget", "saves"):
+                if key in a:
+                    analytics_doc[key] = a[key]
+            if a.get("shotEvents"):
+                analytics_doc["shotEvents"] = [
+                    {"_key": f"se-{i}-{k}", **e}
+                    for k, e in enumerate(a["shotEvents"])
                 ]
             vdoc["analytics"] = analytics_doc
         video_docs.append(vdoc)

@@ -5,6 +5,8 @@ KickReel — decoupled pipeline steps:
   offload       Copy SD card to local library (free the card immediately)
   process       Extract highlight clips from local footage
   analyze       Parse .track files into field heatmap + activity analytics
+  compile       Cut video clips for shot events detected by 'analyze'
+  enrich        Tag clips with player names from a KickReel Stats tracker JSON
   publish       Upload clips to R2 + push metadata to Sanity
   drive-upload  Upload full game videos to Google Drive (resumable, 18 GB+)
 
@@ -12,6 +14,8 @@ Examples:
   python pipeline.py offload       --source /Volumes/Untitled/falcon --library ~/Movies/KickReel
   python pipeline.py process       --library ~/Movies/KickReel
   python pipeline.py analyze       --library ~/Movies/KickReel
+  python pipeline.py compile       --library ~/Movies/KickReel
+  python pipeline.py enrich        --library ~/Movies/KickReel --tracker ~/Downloads/kickreel-*.json
   python pipeline.py publish       --library ~/Movies/KickReel --team u11
   python pipeline.py drive-upload  --library ~/Movies/KickReel
   python pipeline.py drive-upload  --library ~/Movies/KickReel --dry-run
@@ -44,6 +48,19 @@ def main() -> None:
     p_proc.add_argument("--remove-watermark", action="store_true", help="Blur the XBotGo watermark (slower — requires re-encoding)")
     p_proc.add_argument("--match-id", help="Only process this match ID")
 
+    # compile
+    p_cmp = sub.add_parser("compile", help="Cut shot clips from .track analysis results")
+    p_cmp.add_argument("--library", required=True, help="Local library folder")
+    p_cmp.add_argument("--dry-run", action="store_true", help="Show what clips would be cut without running ffmpeg")
+    p_cmp.add_argument("--match-id", help="Only compile this match ID")
+
+    # enrich
+    p_enr = sub.add_parser("enrich", help="Tag clips with player names from a tracker JSON")
+    p_enr.add_argument("--library", required=True, help="Local library folder")
+    p_enr.add_argument("--tracker", required=True, help="Path to KickReel Stats tracker JSON")
+    p_enr.add_argument("--dry-run", action="store_true", help="Show matches without writing")
+    p_enr.add_argument("--match-id", help="Only enrich this match ID")
+
     # analyze
     p_ana = sub.add_parser("analyze", help="Parse .track files and store analytics in manifests")
     p_ana.add_argument("--library", required=True, help="Local library folder")
@@ -66,7 +83,24 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.cmd == "offload":
+    if args.cmd == "compile":
+        from kickreel.cmd_compile import run
+        run(
+            library=Path(args.library).expanduser(),
+            dry_run=args.dry_run,
+            match_id=args.match_id,
+        )
+
+    elif args.cmd == "enrich":
+        from kickreel.cmd_enrich import run
+        run(
+            library=Path(args.library).expanduser(),
+            tracker_path=Path(args.tracker).expanduser(),
+            dry_run=args.dry_run,
+            match_id=args.match_id,
+        )
+
+    elif args.cmd == "offload":
         from kickreel.cmd_offload import run
         run(
             source=Path(args.source).expanduser(),

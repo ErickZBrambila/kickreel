@@ -117,9 +117,13 @@ def run(library: Path, team: str, dry_run: bool = False, match_id: str | None = 
                 analytics=video.analytics or None,
             ))
 
+        doc_type = "gameSession" if manifest.session_type == "GAME" else "practiceSession"
+        existing_id = manifest.sanity_doc_id or ""
+        expected_id = existing_id or f"{doc_type}-{manifest.match_id}"
+
         if dry_run:
             print(f"\n  [dry-run] would publish {len(published_videos)} video(s) to Sanity")
-            print(f"  document id would be: practiceSession-{manifest.match_id}")
+            print(f"  document id would be: {expected_id}")
             continue
 
         if not published_videos:
@@ -136,6 +140,7 @@ def run(library: Path, team: str, dry_run: bool = False, match_id: str | None = 
             videos=published_videos,
             home_team=manifest.home_team,
             away_team=manifest.away_team,
+            existing_doc_id=existing_id,
         )
         manifest.published = True
         manifest.sanity_doc_id = doc_id

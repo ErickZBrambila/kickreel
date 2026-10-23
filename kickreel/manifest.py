@@ -17,6 +17,8 @@ class ClipRecord:
     label: str
     r2_url: str = ""
     clip_type: str = ""  # "highlight" | "goal" | "rival_goal" | "celebration" — set manually or via pipeline
+    player_name: str = ""
+    assist_player_name: str = ""
 
 
 @dataclass
@@ -47,6 +49,7 @@ class SessionManifest:
     away_team: str
     offloaded: bool = False
     processed: bool = False
+    compiled: bool = False   # shot clips cut from analytics
     published: bool = False
     sanity_doc_id: str = ""
     videos: list[VideoRecord] = field(default_factory=list)

@@ -19,6 +19,10 @@ _STARTUP_GRACE_S = 60         # ignore candidates in first N seconds (camera cal
 _CROWD_BASELINE_S = 15        # look back this far for pre-event crowd baseline
 _CROWD_WINDOW_S = 12          # look forward this far for post-event celebration
 
+# Shot detection tuning
+_SHOT_MERGE_GAP_S = 30        # merge STFC events within this window into one shot
+_SHOT_GOAL_WINDOW_S = 10      # shot → goal detected within this many seconds = resulted_in_goal
+
 
 @dataclass
 class ActivityBucket:
@@ -41,6 +45,14 @@ class GoalEvent:
 
 
 @dataclass
+class ShotEvent:
+    time_seconds: float   # video-relative seconds (start of STFC run)
+    label: str            # "MM:SS" formatted
+    side: str             # "left" | "right" (which goal the shot was aimed at)
+    resulted_in_goal: bool = False
+
+
+@dataclass
 class VideoAnalytics:
     # Full-game heatmap: zones normalized so zone 0 = left end in 1st half throughout
     field_zones: list[int] = field(default_factory=lambda: [0] * FIELD_ZONES)
@@ -59,6 +71,11 @@ class VideoAnalytics:
     goal_pressure_right_h2: int = 0
     # Detected goal events
     goal_events: list[GoalEvent] = field(default_factory=list)
+    # Detected shot events (STFC rising edges merged within _SHOT_MERGE_GAP_S)
+    # All STFC events are camera-confirmed shots on target; off-target shots are not detectable.
+    shot_events: list[ShotEvent] = field(default_factory=list)
+    shots_on_target: int = 0
+    saves: int = 0            # shots_on_target that did not result in a goal
     # Totals
     total_frames: int = 0
     dominant_zone: int = 0   # 0-9, zone with most frames
@@ -72,11 +89,12 @@ _frame_pat = re.compile(
 _ballgate_inline = re.compile(r"BallGate d([\d.]+)/[\d.]+W near(\d+)")
 _goalgate_any = re.compile(r"GoalGate[LR]V[01]/\d")   # LV0, LV1, RV0, RV1
 _ball_tracked_pat = re.compile(r"^Ball[12] (?!Fail)")
+_endside_pat = re.compile(r"STFC(\d+)")
 
 
 @dataclass
 class _FrameCtx:
-    """Parsed per-frame data used by the goal detector."""
+    """Parsed per-frame data used by the goal and shot detectors."""
     rel_t: float
     yaw: float
     detect: int
@@ -84,6 +102,7 @@ class _FrameCtx:
     ball_gate_near: bool = False
     goal_gate_visible: bool = False
     ball_tracked: bool = False
+    stfc: int = 0   # Shot Target Frame Count from endSide line; > 0 while camera detects a shot
 
 
 def _fmt(seconds: float) -> str:
@@ -208,6 +227,63 @@ def _detect_goal_events(frames: list[_FrameCtx], half_offset: float = 0.0) -> li
     return merged
 
 
+def _detect_shot_events(
+    frames: list[_FrameCtx],
+    goal_events: list[GoalEvent],
+    half_offset: float = 0.0,
+) -> list[ShotEvent]:
+    """Detect shot events from STFC rising edges and merge nearby ones."""
+    candidates: list[ShotEvent] = []
+    run: list[_FrameCtx] = []
+
+    for f in frames:
+        if f.stfc > 0:
+            run.append(f)
+        elif run:
+            first = run[0]
+            avg_yaw = sum(fr.yaw for fr in run) / len(run)
+            in_h2 = (first.rel_t + half_offset) >= HALFTIME_SECONDS
+            looking_left = avg_yaw < 0
+            if in_h2:
+                looking_left = not looking_left
+            candidates.append(ShotEvent(
+                time_seconds=first.rel_t,
+                label=_fmt(first.rel_t),
+                side="left" if looking_left else "right",
+            ))
+            run = []
+
+    if run:
+        first = run[0]
+        avg_yaw = sum(fr.yaw for fr in run) / len(run)
+        in_h2 = (first.rel_t + half_offset) >= HALFTIME_SECONDS
+        looking_left = avg_yaw < 0
+        if in_h2:
+            looking_left = not looking_left
+        candidates.append(ShotEvent(
+            time_seconds=first.rel_t,
+            label=_fmt(first.rel_t),
+            side="left" if looking_left else "right",
+        ))
+
+    # Merge consecutive events within the gap window (keep earliest timestamp)
+    candidates.sort(key=lambda e: e.time_seconds)
+    merged: list[ShotEvent] = []
+    for cand in candidates:
+        if merged and cand.time_seconds - merged[-1].time_seconds < _SHOT_MERGE_GAP_S:
+            continue
+        merged.append(cand)
+
+    # Cross-reference: shot followed by a goal within _SHOT_GOAL_WINDOW_S = resulted_in_goal
+    for shot in merged:
+        for goal in goal_events:
+            if 0 <= goal.time_seconds - shot.time_seconds <= _SHOT_GOAL_WINDOW_S:
+                shot.resulted_in_goal = True
+                break
+
+    return merged
+
+
 def analyze_track(track_path: Path, video_duration: float | None = None, half_offset: float = 0.0) -> VideoAnalytics | None:
     if not track_path.exists():
         return None
@@ -317,6 +393,12 @@ def analyze_track(track_path: Path, video_duration: float | None = None, half_of
             if _ball_tracked_pat.match(line):
                 current.ball_tracked = True
 
+        # Shot detection: STFC from endSide data (standalone line or appended to GoalGate line)
+        if "endSide" in line:
+            es = _endside_pat.search(line)
+            if es:
+                current.stfc = int(es.group(1))
+
     if not frames:
         return None
 
@@ -325,6 +407,14 @@ def analyze_track(track_path: Path, video_duration: float | None = None, half_of
 
     goal_frames = frames if video_duration is None else [f for f in frames if f.rel_t <= video_duration]
     analytics.goal_events = _detect_goal_events(goal_frames, half_offset=half_offset)
+    # Shot detection via STFC is only reliable on firmware < 5.1 (BallGate format).
+    # fw 5.1+ switched to Ball TSz pixel coords; STFC now tracks player zone-entry, not shots.
+    # Disable until Ball TSz parsing is implemented.
+    has_ball_gate = any(f.ball_gate_d is not None for f in goal_frames)
+    if has_ball_gate:
+        analytics.shot_events = _detect_shot_events(goal_frames, analytics.goal_events, half_offset=half_offset)
+        analytics.shots_on_target = len(analytics.shot_events)
+        analytics.saves = sum(1 for s in analytics.shot_events if not s.resulted_in_goal)
 
     return analytics
 
@@ -357,6 +447,17 @@ def analytics_to_dict(a: VideoAnalytics) -> dict:
             }
             for e in a.goal_events
         ],
+        "shotEvents": [
+            {
+                "timeSeconds": e.time_seconds,
+                "label": e.label,
+                "side": e.side,
+                "resultedInGoal": e.resulted_in_goal,
+            }
+            for e in a.shot_events
+        ],
+        "shotsOnTarget": a.shots_on_target,
+        "saves": a.saves,
         "totalFrames": a.total_frames,
         "dominantZone": a.dominant_zone,
     }

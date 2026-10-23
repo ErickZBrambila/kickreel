@@ -5,3 +5,4 @@ google-api-python-client>=2.100
 google-auth-oauthlib>=1.1
 numpy>=1.26
 scipy>=1.12
+fastmcp>=4.0

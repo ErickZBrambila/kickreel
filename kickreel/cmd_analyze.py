@@ -6,7 +6,14 @@ from .analyze import analyze_track, analytics_to_dict
 from .manifest import load, save
 
 
-def run(library: Path, dry_run: bool = False, match_id: str | None = None, attack_direction: str | None = None) -> None:
+def run(
+    library: Path,
+    dry_run: bool = False,
+    match_id: str | None = None,
+    attack_direction: str | None = None,
+    xbot_clips: list[Path] | None = None,
+    jersey_color: str | None = None,
+) -> None:
     print(f"\nKickReel analyze{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     session_dirs = sorted(
@@ -32,6 +39,14 @@ def run(library: Path, dry_run: bool = False, match_id: str | None = None, attac
             manifest.h1_attack_side = attack_direction
             print(f"  h1_attack_side set to '{attack_direction}'")
 
+        # Store XBotGo clip paths + jersey color in manifest if provided (persists for future runs)
+        if xbot_clips:
+            manifest.xbot_clip_paths = [str(p) for p in xbot_clips]
+            print(f"  xbot_clip_paths saved ({len(xbot_clips)} clips)")
+        if jersey_color and manifest.jersey_color != jersey_color:
+            manifest.jersey_color = jersey_color
+            print(f"  jersey_color set to '{jersey_color}'")
+
         effective_attack_side = manifest.h1_attack_side  # use manifest value (may have been set previously)
         if effective_attack_side:
             print(f"  Attack filter: H1={effective_attack_side}  H2={'left' if effective_attack_side == 'right' else 'right'}")
@@ -43,11 +58,34 @@ def run(library: Path, dry_run: bool = False, match_id: str | None = None, attac
                 continue
 
             track_path = Path(video.track_path)
+
+            # Resolve video file path (same folder as track, strip hidden .data/ if needed)
+            video_file = Path(video.local_path) if video.local_path else None
+            if video_file and not video_file.exists():
+                video_file = None
+
+            # Use confirmed goal marker_times as fallback calibration source
+            goal_times = [c.marker_time for c in video.clips if c.clip_type == "goal"] or None
+
+            # Mark file click times for cross-reference (Pass 3)
+            mark_times = [m["timeSeconds"] for m in video.markers] if video.markers else None
+
+            # XBotGo clips: prefer CLI arg, fall back to manifest-stored paths
+            effective_xbot = xbot_clips or (
+                [Path(p) for p in manifest.xbot_clip_paths if Path(p).exists()]
+                if manifest.xbot_clip_paths else None
+            )
+
             analytics = analyze_track(
                 track_path,
                 video_duration=video.duration or None,
                 half_offset=video.half_offset_seconds,
                 h1_attack_side=effective_attack_side,
+                video_path=video_file,
+                goal_times=goal_times,
+                xbot_clips=effective_xbot,
+                jersey_color=manifest.jersey_color,
+                mark_times=mark_times,
             )
             if not analytics:
                 print(f"  [{video.file_name}] could not parse track file")
@@ -75,6 +113,11 @@ def run(library: Path, dry_run: bool = False, match_id: str | None = None, attac
                     )
             else:
                 print(f"  Goal events : none detected")
+            if analytics.audio_spike_times:
+                spike_labels = "  ".join(
+                    f"{int(t)//60}:{int(t)%60:02d}" for t in sorted(analytics.audio_spike_times)
+                )
+                print(f"  Audio spikes: {spike_labels}")
 
             # Shot events
             shot_in_video = [e for e in analytics.shot_events if e.time_seconds <= (video.duration or float("inf"))]

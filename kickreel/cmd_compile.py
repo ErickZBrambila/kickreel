@@ -101,7 +101,7 @@ def run(library: Path, dry_run: bool = False, match_id: str | None = None) -> No
                     print(f"    [skip — goal] {label_time}")
                     continue
 
-                label = f"Save · {label_time}"
+                label = f"Shot · {label_time}"
                 out = clips_dir / f"{video_path.stem}_shot_{int(t):04d}s.mp4"
 
                 if dry_run:

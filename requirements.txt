@@ -6,6 +6,5 @@ google-auth-oauthlib>=1.1
 numpy>=1.26
 scipy>=1.12
 fastmcp>=4.0
-# Optional: shot verification pass (shot_verify.py)
-# ultralytics>=8.4    # YOLOv8 — person detection for jersey-color check
-# opencv-python-headless>=4.9  # frame extraction from video
+opencv-python-headless>=4.9  # HSV jersey calibration in shot_verify.py
+ultralytics>=8.0             # YOLOv8 ball detection in cmd_cv_analyze.py

@@ -1,6 +1,9 @@
 """Parse .track files from the Falcon XBotGo camera into analytics data."""
 
+import math
 import re
+import struct
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,6 +23,11 @@ _CROWD_BASELINE_S = 15        # look back this far for pre-event crowd baseline
 _CROWD_WINDOW_S = 12          # look forward this far for post-event celebration
 
 # Shot detection tuning
+_AUDIO_BUCKET_S = 5           # RMS bucket size for audio spike detection
+_AUDIO_SPIKE_SIGMA = 1.5      # std-devs above mean to flag as a spike
+_AUDIO_SPIKE_WINDOW_S = 15    # event within this many seconds of a spike gets confidence boost
+_AUDIO_SPIKE_BOOST = 0.12     # confidence added when an audio spike is nearby
+
 _SHOT_MERGE_GAP_S = 30        # merge STFC events within this window into one shot
 _SHOT_GOAL_WINDOW_S = 10      # shot → goal detected within this many seconds = resulted_in_goal
 
@@ -82,6 +90,8 @@ class VideoAnalytics:
     shot_events: list[ShotEvent] = field(default_factory=list)
     shots_on_target: int = 0
     saves: int = 0            # shots_on_target that did not result in a goal
+    # Audio crowd-noise spikes (bucket start times where RMS > mean + 1.5σ)
+    audio_spike_times: list[float] = field(default_factory=list)
     # Totals
     total_frames: int = 0
     dominant_zone: int = 0   # 0-9, zone with most frames
@@ -113,6 +123,50 @@ class _FrameCtx:
     stfc: int = 0   # Shot Target Frame Count from endSide line; > 0 while camera detects a shot
 
 
+def _compute_audio_spikes(video_path: Path) -> list[float]:
+    """Extract mono audio from video, compute RMS per 5s bucket, return spike times.
+
+    A spike is any bucket whose RMS exceeds mean + _AUDIO_SPIKE_SIGMA * std_dev.
+    Returns bucket start times (seconds) sorted ascending. Empty list on any error.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", str(video_path),
+                "-ac", "1", "-ar", "8000",
+                "-f", "s16le", "-",
+            ],
+            capture_output=True,
+            timeout=300,
+        )
+        data = result.stdout
+        if not data:
+            return []
+
+        sample_rate = 8000
+        bucket_samples = sample_rate * _AUDIO_BUCKET_S * 2  # 2 bytes per s16 sample
+        buckets: list[tuple[float, float]] = []  # (t_start, rms)
+
+        for i in range(0, len(data) - bucket_samples, bucket_samples):
+            chunk = data[i : i + bucket_samples]
+            samples = struct.unpack(f"<{len(chunk) // 2}h", chunk)
+            rms = math.sqrt(sum(s * s for s in samples) / len(samples))
+            t_start = i / (sample_rate * 2)
+            buckets.append((t_start, rms))
+
+        if len(buckets) < 4:
+            return []
+
+        rms_vals = [r for _, r in buckets]
+        mean = sum(rms_vals) / len(rms_vals)
+        std = math.sqrt(sum((r - mean) ** 2 for r in rms_vals) / len(rms_vals))
+        threshold = mean + _AUDIO_SPIKE_SIGMA * std
+
+        return [t for t, r in buckets if r >= threshold]
+    except Exception:
+        return []
+
+
 def _fmt(seconds: float) -> str:
     m, s = divmod(int(seconds), 60)
     return f"{m}:{s:02d}"
@@ -123,6 +177,7 @@ def _score_run(
     all_frames: list[_FrameCtx],
     run_end_idx: int,
     in_second_half: bool,
+    audio_spike_times: list[float] | None = None,
 ) -> GoalEvent:
     """Score a ball-near-gate run and return a GoalEvent."""
     t = run[0].rel_t
@@ -177,6 +232,8 @@ def _score_run(
         conf += 0.15
     if crowd_spike_pct >= 15:
         conf += min(0.15, crowd_spike_pct / 100)
+    if audio_spike_times and any(abs(t - spike) <= _AUDIO_SPIKE_WINDOW_S for spike in audio_spike_times):
+        conf += _AUDIO_SPIKE_BOOST
     if n_frames >= 10:
         conf += 0.15
     elif n_frames >= 6:
@@ -194,7 +251,11 @@ def _score_run(
     )
 
 
-def _detect_goal_events(frames: list[_FrameCtx], half_offset: float = 0.0) -> list[GoalEvent]:
+def _detect_goal_events(
+    frames: list[_FrameCtx],
+    half_offset: float = 0.0,
+    audio_spike_times: list[float] | None = None,
+) -> list[GoalEvent]:
     """Find goal candidates from per-frame data and return merged, sorted events."""
     candidates: list[GoalEvent] = []
     run: list[_FrameCtx] = []
@@ -213,12 +274,12 @@ def _detect_goal_events(frames: list[_FrameCtx], half_offset: float = 0.0) -> li
         else:
             if len(run) >= _MIN_RUN_FRAMES:
                 in_h2 = (run[0].rel_t + half_offset) >= HALFTIME_SECONDS
-                candidates.append(_score_run(run, frames, i, in_h2))
+                candidates.append(_score_run(run, frames, i, in_h2, audio_spike_times))
             run = []
 
     if len(run) >= _MIN_RUN_FRAMES:
         in_h2 = (run[0].rel_t + half_offset) >= HALFTIME_SECONDS
-        candidates.append(_score_run(run, frames, len(frames), in_h2))
+        candidates.append(_score_run(run, frames, len(frames), in_h2, audio_spike_times))
 
     # Merge candidates within _MERGE_GAP_S of each other (keep highest confidence)
     candidates.sort(key=lambda e: e.time_seconds)
@@ -363,6 +424,11 @@ def analyze_track(
     video_duration: float | None = None,
     half_offset: float = 0.0,
     h1_attack_side: str | None = None,  # "right" | "left" | None=both
+    video_path: Path | None = None,          # enables HSV jersey calibration in verify_shots
+    goal_times: list[float] | None = None,   # confirmed goal marker_times for calibration
+    xbot_clips: list[Path] | None = None,    # XBotGo confirmed-shot clips (best calibration source)
+    jersey_color: str = "red",               # color hint for HSV calibration
+    mark_times: list[float] | None = None,   # XBotGo mark file click times (Pass 3 cross-reference)
 ) -> VideoAnalytics | None:
     if not track_path.exists():
         return None
@@ -501,7 +567,13 @@ def analyze_track(
     analytics.dominant_zone = analytics.field_zones.index(max(analytics.field_zones))
 
     goal_frames = frames if video_duration is None else [f for f in frames if f.rel_t <= video_duration]
-    analytics.goal_events = _detect_goal_events(goal_frames, half_offset=half_offset)
+
+    audio_spikes: list[float] = []
+    if video_path and video_path.exists():
+        audio_spikes = _compute_audio_spikes(video_path)
+        analytics.audio_spike_times = audio_spikes
+
+    analytics.goal_events = _detect_goal_events(goal_frames, half_offset=half_offset, audio_spike_times=audio_spikes)
     has_ball_gate = any(f.ball_gate_d is not None for f in goal_frames)
     if has_ball_gate:
         # fw < 5.1: STFC-based shot detection (reliable with BallGate)
@@ -516,11 +588,30 @@ def analyze_track(
             verified = verify_shots(
                 [e.time_seconds for e in raw_events],
                 track_path,
+                video_path=video_path,
+                goal_times=goal_times,
+                xbot_clips=xbot_clips,
+                jersey_color=jersey_color,
                 h1_attack_side=h1_attack_side,
                 half_offset=half_offset,
+                mark_times=mark_times,
+                verbose=True,
             )
             keep = {r.time_seconds for r in verified if r.verdict == "verified"}
-            analytics.shot_events = [e for e in raw_events if e.time_seconds in keep]
+            tsz_times = {e.time_seconds for e in raw_events}
+            # TSz-matched shots
+            shot_events_out = [e for e in raw_events if e.time_seconds in keep]
+            # Mark-only shots (verified by half-frame jersey scan, no TSz candidate)
+            for r in verified:
+                if r.verdict == "verified" and r.time_seconds not in tsz_times:
+                    in_h2_shot = r.time_seconds >= HALFTIME_SECONDS
+                    attacks_right = (h1_attack_side == "right") != in_h2_shot if h1_attack_side else True
+                    shot_events_out.append(ShotEvent(
+                        time_seconds=r.time_seconds,
+                        label=_fmt(r.time_seconds),
+                        side="right" if attacks_right else "left",
+                    ))
+            analytics.shot_events = sorted(shot_events_out, key=lambda e: e.time_seconds)
         except Exception:
             analytics.shot_events = raw_events  # fall back if verify unavailable
     analytics.shots_on_target = len(analytics.shot_events)
@@ -568,6 +659,58 @@ def analytics_to_dict(a: VideoAnalytics) -> dict:
         ],
         "shotsOnTarget": a.shots_on_target,
         "saves": a.saves,
+        "audioSpikeTimes": [round(t, 1) for t in a.audio_spike_times],
         "totalFrames": a.total_frames,
         "dominantZone": a.dominant_zone,
     }
+
+
+def dict_to_analytics(d: dict) -> VideoAnalytics:
+    """Reconstruct a VideoAnalytics from a manifest analytics dict."""
+    a = VideoAnalytics()
+    if not d:
+        return a
+    a.field_zones = d.get("fieldZones", a.field_zones)
+    a.field_zones_first_half = d.get("fieldZonesFirstHalf", a.field_zones_first_half)
+    a.field_zones_second_half = d.get("fieldZonesSecondHalf", a.field_zones_second_half)
+    a.goal_pressure_left = d.get("goalPressureLeft", 0)
+    a.goal_pressure_right = d.get("goalPressureRight", 0)
+    a.goal_pressure_left_h1 = d.get("goalPressureLeftH1", 0)
+    a.goal_pressure_right_h1 = d.get("goalPressureRightH1", 0)
+    a.goal_pressure_left_h2 = d.get("goalPressureLeftH2", 0)
+    a.goal_pressure_right_h2 = d.get("goalPressureRightH2", 0)
+    a.shots_on_target = d.get("shotsOnTarget", 0)
+    a.saves = d.get("saves", 0)
+    a.audio_spike_times = d.get("audioSpikeTimes", [])
+    a.total_frames = d.get("totalFrames", 0)
+    a.dominant_zone = d.get("dominantZone", 0)
+    a.activity_buckets = [
+        ActivityBucket(
+            t_start=b["tStart"], t_end=b["tEnd"],
+            detections=b["detections"], frames=b["frames"],
+        )
+        for b in d.get("activityBuckets", [])
+    ]
+    a.goal_events = [
+        GoalEvent(
+            time_seconds=e["timeSeconds"],
+            label=e["label"],
+            side=e["side"],
+            confidence=e["confidence"],
+            ball_gate_min_d=e["ballGateMinD"],
+            gate_visible=e["gateVisible"],
+            crowd_spike_pct=e["crowdSpikePct"],
+            ball_lost_after=e["ballLostAfter"],
+        )
+        for e in d.get("goalEvents", [])
+    ]
+    a.shot_events = [
+        ShotEvent(
+            time_seconds=e["timeSeconds"],
+            label=e["label"],
+            side=e["side"],
+            resulted_in_goal=e.get("resultedInGoal", False),
+        )
+        for e in d.get("shotEvents", [])
+    ]
+    return a

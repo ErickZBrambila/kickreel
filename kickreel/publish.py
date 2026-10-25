@@ -125,3 +125,24 @@ def create_session_document(
     )
     resp.raise_for_status()
     return doc_id
+
+
+def patch_compilation(doc_id: str, compilation_url: str, compilation_title: str) -> None:
+    """Patch an existing gameSession doc with compilationUrl + compilationTitle."""
+    url = (
+        f"https://{config.SANITY_PROJECT_ID}.api.sanity.io"
+        f"/v2024-01-01/data/mutate/{config.SANITY_DATASET}"
+    )
+    resp = requests.post(
+        url,
+        json={"mutations": [{"patch": {"id": doc_id, "set": {
+            "compilationUrl": compilation_url,
+            "compilationTitle": compilation_title,
+        }}}]},
+        headers={
+            "Authorization": f"Bearer {config.SANITY_WRITE_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()

@@ -1,14 +1,31 @@
 """Step 3 — Upload clips to R2 and publish metadata to Sanity."""
 
+from datetime import datetime
 from pathlib import Path
 
 from . import config
 from .manifest import load, save
-from .publish import PublishedVideo, create_session_document
+from .publish import PublishedVideo, create_session_document, patch_compilation
 from .upload import upload_file
 
 
-def run(library: Path, team: str, dry_run: bool = False, match_id: str | None = None) -> None:
+def _correct_session_name(session_date: str, away_team: str) -> str:
+    """Build a canonical session name from the actual recording date (not the device clock)."""
+    try:
+        dt = datetime.fromisoformat(session_date)
+        month_day = dt.strftime("%b %-d")  # e.g. "Oct 24"
+    except (ValueError, TypeError):
+        month_day = "Unknown"
+    return f"{month_day} - North Legends VS {away_team}"
+
+
+def run(
+    library: Path,
+    team: str,
+    dry_run: bool = False,
+    match_id: str | None = None,
+    compilation_path: Path | None = None,
+) -> None:
     print(f"\nKickReel publish{'  [DRY RUN]' if dry_run else ''}: scanning {library}\n")
 
     team_id = config.SANITY_TEAM_U11_ID if team == "u11" else config.SANITY_TEAM_U12_ID
@@ -40,8 +57,11 @@ def run(library: Path, team: str, dry_run: bool = False, match_id: str | None = 
         if not has_analytics and any(v.track_path for v in manifest.videos):
             print(f"  Warning: no analytics found — run 'analyze' before 'publish' for heatmap data")
 
+        # Always derive session name from actual recording date (device clock can drift)
+        corrected_name = _correct_session_name(manifest.session_date, manifest.away_team)
+
         print(f"{'─'*50}")
-        print(f"Session : {manifest.session_name}  [{manifest.session_type}]")
+        print(f"Session : {corrected_name}  [{manifest.session_type}]")
 
         date_slug = manifest.session_date[:10].replace("-", "") if manifest.session_date else "unknown"
         published_videos: list[PublishedVideo] = []
@@ -133,17 +153,40 @@ def run(library: Path, team: str, dry_run: bool = False, match_id: str | None = 
         print(f"\n  Publishing to Sanity…")
         doc_id = create_session_document(
             match_id=manifest.match_id,
-            session_name=manifest.session_name,
+            session_name=corrected_name,
             session_type=manifest.session_type,
             session_date=manifest.session_date,
             team_id=team_id,
             videos=published_videos,
-            home_team=manifest.home_team,
-            away_team=manifest.away_team,
+            home_team="",   # already baked into corrected_name
+            away_team="",
             existing_doc_id=existing_id,
         )
         manifest.published = True
         manifest.sanity_doc_id = doc_id
+
+        # ── Compilation upload ────────────────────────────────────────────────
+        # Prefer explicit --compilation arg; fall back to manifest.compilation_path
+        comp_path = compilation_path or (
+            Path(manifest.compilation_path) if manifest.compilation_path else None
+        )
+        if comp_path and comp_path.exists():
+            print(f"  Uploading compilation…")
+            comp_key = f"kickreel/compilations/{date_slug}/{comp_path.name}"
+            comp_url = upload_file(comp_path, comp_key, "video/mp4")
+            try:
+                dt = datetime.fromisoformat(manifest.session_date)
+                label_date = dt.strftime("%b %-d")
+            except (ValueError, TypeError):
+                label_date = date_slug
+            comp_title = f"Goals Compilation · {label_date} vs {manifest.away_team}"
+            patch_compilation(doc_id, comp_url, comp_title)
+            manifest.compilation_path = str(comp_path)
+            print(f"  ✓ compilation → {comp_url}")
+            print(f"  ✓ compilationTitle: {comp_title}")
+        elif comp_path:
+            print(f"  Warning: compilation file not found: {comp_path}")
+
         save(session_dir, manifest)
         print(f"  ✓ {doc_id}")
 

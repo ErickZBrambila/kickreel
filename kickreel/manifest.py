@@ -52,6 +52,11 @@ class SessionManifest:
     compiled: bool = False   # shot clips cut from analytics
     published: bool = False
     sanity_doc_id: str = ""
+    compilation_path: str = ""  # local path to the compiled goals MP4; picked up by 'publish'
+    # "right" = team attacks outx>1700 side in H1, flips in H2; "left" = opposite; None = detect both
+    h1_attack_side: str | None = None
+    xbot_clip_paths: list[str] = field(default_factory=list)  # XBotGo confirmed-shot clips for jersey HSV calibration
+    jersey_color: str = "red"  # team jersey color hint for HSV calibration: red|blue|orange|yellow|green|purple
     videos: list[VideoRecord] = field(default_factory=list)
 
 

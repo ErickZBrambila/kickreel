@@ -5,6 +5,7 @@ KickReel — decoupled pipeline steps:
   offload       Copy SD card to local library (free the card immediately)
   process       Extract highlight clips from local footage
   analyze       Parse .track files into field heatmap + activity analytics
+  cv-analyze    YOLOv8 ball-detection shot analysis (complements 'analyze')
   compile       Cut video clips for shot events detected by 'analyze'
   enrich        Tag clips with player names from a KickReel Stats tracker JSON
   publish       Upload clips to R2 + push metadata to Sanity
@@ -67,6 +68,17 @@ def main() -> None:
     p_ana.add_argument("--dry-run", action="store_true", help="Show analytics without writing to manifests")
     p_ana.add_argument("--match-id", help="Only analyze this match ID")
     p_ana.add_argument("--attack-direction", choices=["right", "left"], help="H1 attack direction (right=outx>1700 goal). Stored in manifest and used to filter Ball TSz shots to our team only.")
+    p_ana.add_argument("--xbot-clips", nargs="+", help="XBotGo confirmed-shot .MP4 files for jersey HSV calibration. Stored in manifest; only needed once per session.")
+    p_ana.add_argument("--jersey-color", choices=["red","blue","orange","yellow","green","purple"], default=None, help="Team jersey color hint for HSV calibration (default: red). Stored in manifest.")
+
+    # cv-analyze
+    p_cv = sub.add_parser("cv-analyze", help="YOLOv8 ball-detection shot analysis (complements 'analyze')")
+    p_cv.add_argument("--library", required=True, help="Local library folder")
+    p_cv.add_argument("--dry-run", action="store_true", help="Show shots without writing to manifests")
+    p_cv.add_argument("--match-id", help="Only analyze this match ID")
+    p_cv.add_argument("--attack-direction", choices=["right", "left"], help="H1 attack direction")
+    p_cv.add_argument("--xbot-clips", nargs="+", help="XBotGo confirmed-shot clips for jersey calibration")
+    p_cv.add_argument("--jersey-color", choices=["red","blue","orange","yellow","green","purple"], default=None)
 
     # publish
     p_pub = sub.add_parser("publish", help="Upload clips to R2 and push to Sanity")
@@ -74,6 +86,7 @@ def main() -> None:
     p_pub.add_argument("--team", choices=["u11", "u12"], default="u11")
     p_pub.add_argument("--dry-run", action="store_true", help="Show what would be uploaded without touching R2 or Sanity")
     p_pub.add_argument("--match-id", help="Only publish this match ID")
+    p_pub.add_argument("--compilation", help="Path to goals compilation MP4 — uploaded to R2 and wired as main session video + ribbon")
 
     # drive-upload
     p_drive = sub.add_parser("drive-upload", help="Upload full game videos to Google Drive")
@@ -110,11 +123,26 @@ def main() -> None:
 
     elif args.cmd == "analyze":
         from kickreel.cmd_analyze import run
+        xbot_clips = [Path(p).expanduser() for p in args.xbot_clips] if getattr(args, "xbot_clips", None) else None
         run(
             library=Path(args.library).expanduser(),
             dry_run=args.dry_run,
             match_id=args.match_id,
             attack_direction=getattr(args, "attack_direction", None),
+            xbot_clips=xbot_clips,
+            jersey_color=getattr(args, "jersey_color", None),
+        )
+
+    elif args.cmd == "cv-analyze":
+        from kickreel.cmd_cv_analyze import run
+        xbot_clips = [Path(p).expanduser() for p in args.xbot_clips] if getattr(args, "xbot_clips", None) else None
+        run(
+            library=Path(args.library).expanduser(),
+            dry_run=args.dry_run,
+            match_id=args.match_id,
+            attack_direction=getattr(args, "attack_direction", None),
+            xbot_clips=xbot_clips,
+            jersey_color=getattr(args, "jersey_color", None),
         )
 
     elif args.cmd == "process":
@@ -135,6 +163,7 @@ def main() -> None:
             team=args.team,
             dry_run=args.dry_run,
             match_id=args.match_id,
+            compilation_path=Path(args.compilation).expanduser() if args.compilation else None,
         )
 
     elif args.cmd == "drive-upload":

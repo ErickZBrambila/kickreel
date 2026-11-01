@@ -6,7 +6,8 @@ from pathlib import Path
 from . import config
 from .manifest import load, save
 from .publish import PublishedVideo, create_session_document, patch_compilation
-from .upload import upload_file
+from .upload import upload_clip
+from .youtube import thumbnail_url as yt_thumbnail_url
 
 
 def _correct_session_name(session_date: str, away_team: str) -> str:
@@ -94,25 +95,20 @@ def run(
                 ))
                 continue
 
-            # Upload thumbnail
+            # Upload clips to YouTube; derive thumbnail from first clip
             thumb_url = ""
-            if video.cover_path and Path(video.cover_path).exists():
-                thumb_key = f"kickreel/sessions/{date_slug}/thumbs/{Path(video.cover_path).name}"
-                thumb_url = upload_file(Path(video.cover_path), thumb_key, "image/jpeg")
-                print(f"  ✓ thumbnail")
-
-            # Upload clips
             published_clips = []
             for clip in video.clips:
                 clip_path = clips_dir / clip.file_name
                 if not clip_path.exists():
                     print(f"  Warning: clip not found: {clip_path}")
                     continue
-                clip_key = f"kickreel/sessions/{date_slug}/clips/{clip.file_name}"
-                clip_url = upload_file(clip_path, clip_key, "video/mp4")
-                clip.r2_url = clip_url
                 size_mb = clip_path.stat().st_size / 1e6
-                print(f"  ✓ {clip.label} ({size_mb:.0f} MB)")
+                video_id, clip_url = upload_clip(clip_path, title=clip.label or clip.file_name)
+                clip.r2_url = clip_url  # field stores YouTube URL going forward
+                if not thumb_url:
+                    thumb_url = yt_thumbnail_url(video_id)
+                print(f"  ✓ {clip.label} ({size_mb:.0f} MB) → {clip_url}")
                 clip_doc: dict = {
                     "r2Url": clip_url,
                     "startSeconds": clip.start_seconds,
@@ -172,14 +168,18 @@ def run(
         )
         if comp_path and comp_path.exists():
             print(f"  Uploading compilation…")
-            comp_key = f"kickreel/compilations/{date_slug}/{comp_path.name}"
-            comp_url = upload_file(comp_path, comp_key, "video/mp4")
             try:
                 dt = datetime.fromisoformat(manifest.session_date)
                 label_date = dt.strftime("%b %-d")
             except (ValueError, TypeError):
                 label_date = date_slug
             comp_title = f"Goals Compilation · {label_date} vs {manifest.away_team}"
+            _, comp_url = upload_clip(comp_path, title=comp_title)
+            try:
+                dt = datetime.fromisoformat(manifest.session_date)
+                label_date = dt.strftime("%b %-d")
+            except (ValueError, TypeError):
+                label_date = date_slug
             patch_compilation(doc_id, comp_url, comp_title)
             manifest.compilation_path = str(comp_path)
             print(f"  ✓ compilation → {comp_url}")

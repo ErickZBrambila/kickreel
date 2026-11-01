@@ -55,6 +55,7 @@ def create_session_document(
                     "startSeconds": c["startSeconds"],
                     "endSeconds": c["endSeconds"],
                     "label": c["label"],
+                    **({"downloadUrl": c["downloadUrl"]} if c.get("downloadUrl") else {}),
                     **({"clipType": c["clipType"]} if c.get("clipType") else {}),
                     **({"playerName": c["playerName"]} if c.get("playerName") else {}),
                     **({"assistPlayerName": c["assistPlayerName"]} if c.get("assistPlayerName") else {}),

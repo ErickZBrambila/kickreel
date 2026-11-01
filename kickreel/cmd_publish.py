@@ -6,7 +6,7 @@ from pathlib import Path
 from . import config
 from .manifest import load, save
 from .publish import PublishedVideo, create_session_document, patch_compilation
-from .upload import upload_clip
+from .upload import upload_clip, upload_file
 from .youtube import thumbnail_url as yt_thumbnail_url
 
 
@@ -105,12 +105,16 @@ def run(
                     continue
                 size_mb = clip_path.stat().st_size / 1e6
                 video_id, clip_url = upload_clip(clip_path, title=clip.label or clip.file_name)
-                clip.r2_url = clip_url  # field stores YouTube URL going forward
+                clip.r2_url = clip_url  # YouTube URL for playback
                 if not thumb_url:
                     thumb_url = yt_thumbnail_url(video_id)
-                print(f"  ✓ {clip.label} ({size_mb:.0f} MB) → {clip_url}")
+                r2_key = f"kickreel/sessions/{date_slug}/clips/{clip.file_name}"
+                download_url = upload_file(clip_path, r2_key, "video/mp4")
+                clip.download_url = download_url
+                print(f"  ✓ {clip.label} ({size_mb:.0f} MB) → YT + R2")
                 clip_doc: dict = {
                     "r2Url": clip_url,
+                    "downloadUrl": download_url,
                     "startSeconds": clip.start_seconds,
                     "endSeconds": clip.end_seconds,
                     "label": clip.label,

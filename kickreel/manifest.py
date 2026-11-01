@@ -15,7 +15,8 @@ class ClipRecord:
     end_seconds: float
     marker_time: float
     label: str
-    r2_url: str = ""
+    r2_url: str = ""        # YouTube watch URL (playback)
+    download_url: str = ""  # R2 URL (direct download for parents)
     clip_type: str = ""  # "highlight" | "goal" | "rival_goal" | "celebration" — set manually or via pipeline
     player_name: str = ""
     assist_player_name: str = ""

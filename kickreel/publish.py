@@ -128,6 +128,46 @@ def create_session_document(
     return doc_id
 
 
+def create_match_document(
+    match_id: str,
+    team_id: str,
+    date: str,
+    opponent: str,
+    home_away: str,
+    goals_for: int,
+    goals_against: int,
+) -> str:
+    """Create or replace a match document in Sanity. Returns the doc _id."""
+    result = "W" if goals_for > goals_against else ("L" if goals_for < goals_against else "D")
+    doc = {
+        "_id": f"match-{match_id}",
+        "_type": "match",
+        "date": date if date.endswith("Z") else date + "Z",
+        "opponent": opponent,
+        "homeAway": home_away,
+        "goalsFor": goals_for,
+        "goalsAgainst": goals_against,
+        "result": result,
+    }
+    if team_id:
+        doc["team"] = {"_type": "reference", "_ref": team_id}
+    url = (
+        f"https://{config.SANITY_PROJECT_ID}.api.sanity.io"
+        f"/v2024-01-01/data/mutate/{config.SANITY_DATASET}"
+    )
+    resp = requests.post(
+        url,
+        json={"mutations": [{"createOrReplace": doc}]},
+        headers={
+            "Authorization": f"Bearer {config.SANITY_WRITE_TOKEN}",
+            "Content-Type": "application/json",
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return doc["_id"]
+
+
 def patch_compilation(doc_id: str, compilation_url: str, compilation_title: str) -> None:
     """Patch an existing gameSession doc with compilationUrl + compilationTitle."""
     url = (

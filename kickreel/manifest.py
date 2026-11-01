@@ -54,6 +54,9 @@ class SessionManifest:
     published: bool = False
     sanity_doc_id: str = ""
     compilation_path: str = ""  # local path to the compiled goals MP4; picked up by 'publish'
+    home_away: str = ""          # "home" | "away" — our team's perspective; set by enrich
+    goals_for: int = -1          # -1 = not yet loaded from tracker
+    goals_against: int = -1
     # "right" = team attacks outx>1700 side in H1, flips in H2; "left" = opposite; None = detect both
     h1_attack_side: str | None = None
     xbot_clip_paths: list[str] = field(default_factory=list)  # XBotGo confirmed-shot clips for jersey HSV calibration

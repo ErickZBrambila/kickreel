@@ -5,7 +5,7 @@ from pathlib import Path
 
 from . import config
 from .manifest import load, save
-from .publish import PublishedVideo, create_session_document, patch_compilation
+from .publish import PublishedVideo, create_match_document, create_session_document, patch_compilation
 from .upload import upload_clip, upload_file
 from .youtube import thumbnail_url as yt_thumbnail_url
 
@@ -164,6 +164,21 @@ def run(
         )
         manifest.published = True
         manifest.sanity_doc_id = doc_id
+
+        # ── Match statistics document ─────────────────────────────────────────
+        if manifest.session_type == "GAME" and manifest.goals_for >= 0:
+            match_doc_id = create_match_document(
+                match_id=manifest.match_id,
+                team_id=team_id,
+                date=manifest.session_date,
+                opponent=manifest.away_team,
+                home_away=manifest.home_away or "away",
+                goals_for=manifest.goals_for,
+                goals_against=manifest.goals_against,
+            )
+            print(f"  ✓ match doc → {match_doc_id}")
+        elif manifest.session_type == "GAME":
+            print(f"  Warning: no score data — run 'enrich' with tracker JSON before 'publish' to auto-create match stats")
 
         # ── Compilation upload ────────────────────────────────────────────────
         # Prefer explicit --compilation arg; fall back to manifest.compilation_path

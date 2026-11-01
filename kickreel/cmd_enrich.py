@@ -49,10 +49,23 @@ def run(
     tracker_data = json.loads(tracker_path.read_text())
     events = tracker_data.get("events", [])
     tracker_date = tracker_data.get("date", "")
+    tracker_home_away: str = tracker_data.get("homeAway", "")
+    final_score: dict = tracker_data.get("finalScore", {})
+    tracker_goals_for = -1
+    tracker_goals_against = -1
+    if final_score and tracker_home_away:
+        if tracker_home_away == "home":
+            tracker_goals_for = final_score.get("home", -1)
+            tracker_goals_against = final_score.get("away", -1)
+        else:
+            tracker_goals_for = final_score.get("away", -1)
+            tracker_goals_against = final_score.get("home", -1)
 
     print(f"Tracker  : {tracker_path.name}")
     print(f"Opponent : {tracker_data.get('opponent', '?')}")
     print(f"Events   : {len(events)}")
+    if tracker_goals_for >= 0:
+        print(f"Score    : {tracker_goals_for}–{tracker_goals_against} ({'home' if tracker_home_away == 'home' else 'away'})")
     print()
 
     session_dirs = sorted(
@@ -176,10 +189,19 @@ def run(
                     clip.assist_player_name = assist
                 matched_total += 1
 
+        if not dry_run:
+            # Always persist score/home_away from tracker, even if no clips matched
+            if tracker_goals_for >= 0:
+                manifest.goals_for = tracker_goals_for
+                manifest.goals_against = tracker_goals_against
+            if tracker_home_away:
+                manifest.home_away = tracker_home_away
+            if tracker_goals_for >= 0 or matched_total > 0:
+                save(session_dir, manifest)
+
         if dry_run:
             print(f"\n  [dry-run] no files written")
         elif matched_total > 0:
-            save(session_dir, manifest)
             print(f"\n  ✓ {matched_total} clip(s) enriched. Manifest saved.")
         else:
             print(f"\n  No clips matched — manifest unchanged")

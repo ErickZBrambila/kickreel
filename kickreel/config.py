@@ -4,11 +4,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-R2_ACCOUNT_ID = os.environ["R2_ACCOUNT_ID"]
-R2_ACCESS_KEY_ID = os.environ["R2_ACCESS_KEY_ID"]
-R2_SECRET_ACCESS_KEY = os.environ["R2_SECRET_ACCESS_KEY"]
-R2_BUCKET = os.environ["R2_BUCKET"]
-R2_PUBLIC_URL = os.environ["R2_PUBLIC_URL"].rstrip("/")
+# R2 — kept for deleting legacy clips only; not used for new uploads
+R2_ACCOUNT_ID = os.environ.get("R2_ACCOUNT_ID", "")
+R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET = os.environ.get("R2_BUCKET", "")
+R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
 
 SANITY_PROJECT_ID = os.environ["SANITY_PROJECT_ID"]
 SANITY_DATASET = os.environ.get("SANITY_DATASET", "production")
@@ -24,3 +25,7 @@ CLIPS_OUTPUT_DIR = Path(os.environ.get("CLIPS_OUTPUT_DIR", "/tmp/kickreel-clips"
 DRIVE_CREDENTIALS_PATH = os.environ.get("DRIVE_CREDENTIALS_PATH", "~/.config/kickreel/drive_credentials.json")
 DRIVE_TOKEN_PATH = os.environ.get("DRIVE_TOKEN_PATH", "~/.config/kickreel/drive_token.json")
 DRIVE_ROOT_FOLDER = os.environ.get("DRIVE_ROOT_FOLDER", "KickReel")
+
+# YouTube — reuses Drive OAuth credentials by default
+YOUTUBE_CREDENTIALS_PATH = os.environ.get("YOUTUBE_CREDENTIALS_PATH", "~/.config/kickreel/drive_credentials.json")
+YOUTUBE_TOKEN_PATH = os.environ.get("YOUTUBE_TOKEN_PATH", "~/.config/kickreel/youtube_token.json")

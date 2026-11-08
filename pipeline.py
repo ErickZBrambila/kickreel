@@ -82,6 +82,13 @@ def main() -> None:
     p_cv.add_argument("--xbot-clips", nargs="+", help="XBotGo confirmed-shot clips for jersey calibration")
     p_cv.add_argument("--jersey-color", choices=["red","blue","orange","yellow","green","purple"], default=None)
 
+    # goals-compilation
+    p_goals = sub.add_parser("goals-compilation", help="Build goals highlight reel from enriched goal clips")
+    p_goals.add_argument("--library", required=True, help="Local library folder")
+    p_goals.add_argument("--match-id", help="Only compile this match ID")
+    p_goals.add_argument("--dry-run", action="store_true", help="Show what would be built without running ffmpeg")
+    p_goals.add_argument("--force", action="store_true", help="Rebuild even if compilation already exists")
+
     # publish
     p_pub = sub.add_parser("publish", help="Upload clips to R2 and push to Sanity")
     p_pub.add_argument("--library", required=True, help="Local library folder")
@@ -99,7 +106,16 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.cmd == "compile":
+    if args.cmd == "goals-compilation":
+        from kickreel.cmd_goals_compilation import run
+        run(
+            library=Path(args.library).expanduser(),
+            match_id=args.match_id,
+            dry_run=args.dry_run,
+            force=args.force,
+        )
+
+    elif args.cmd == "compile":
         from kickreel.cmd_compile import run
         run(
             library=Path(args.library).expanduser(),

@@ -46,8 +46,35 @@ def run(
         if not manifest:
             continue
 
-        if manifest.published:
+        if manifest.published and not compilation_path and not manifest.compilation_path:
             print(f"[skip] {manifest.session_name} — already published")
+            continue
+
+        # If already published but has a new compilation, upload just the compilation
+        if manifest.published:
+            comp_path = compilation_path or (
+                Path(manifest.compilation_path) if manifest.compilation_path else None
+            )
+            if not comp_path or not comp_path.exists():
+                print(f"[skip] {manifest.session_name} — already published, no new compilation")
+                continue
+            doc_id = manifest.sanity_doc_id
+            if not doc_id:
+                print(f"[skip] {manifest.session_name} — no sanity_doc_id, cannot patch compilation")
+                continue
+            print(f"{'─'*50}")
+            print(f"Session  : {manifest.session_name}  [compilation upload only]")
+            comp_title = f"North Legends vs {manifest.away_team} — Goals"
+            print(f"  Uploading compilation ({comp_path.stat().st_size // 1_000_000} MB)…")
+            if not dry_run:
+                _, comp_url = upload_clip(comp_path, title=comp_title)
+                patch_compilation(doc_id, comp_url, comp_title)
+                manifest.compilation_path = str(comp_path)
+                save(session_dir, manifest)
+                print(f"  ✓ compilationUrl  → {comp_url}")
+                print(f"  ✓ compilationTitle → {comp_title}")
+            else:
+                print(f"  [dry-run] would upload {comp_path.name} and patch {doc_id}")
             continue
 
         if not manifest.processed:

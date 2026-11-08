@@ -228,6 +228,45 @@ def run_enrich(
 
 
 @mcp.tool()
+def run_goals_compilation(
+    library: str = DEFAULT_LIBRARY,
+    match_id: str = "",
+    dry_run: bool = False,
+    force: bool = False,
+) -> dict:
+    """Build a goals-compilation MP4 (intro + scoreboard + goal clips) for a GAME session.
+
+    Renders the North Legends scoreboard, normalizes each goal clip to 1080p25,
+    then concatenates them. Sets manifest.compilation_path so 'publish' uploads it.
+
+    Args:
+        library:  Path to the local library (default: ~/Movies/KickReel)
+        match_id: Only compile this match ID (empty = all GAME sessions without a compilation)
+        dry_run:  Show what would be built without running ffmpeg
+        force:    Rebuild even if a compilation already exists
+    """
+    cmd = [
+        sys.executable, str(Path(__file__).parent / "pipeline.py"),
+        "goals-compilation",
+        "--library", str(_library_path(library)),
+    ]
+    if match_id:
+        cmd += ["--match-id", match_id]
+    if dry_run:
+        cmd.append("--dry-run")
+    if force:
+        cmd.append("--force")
+
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(Path(__file__).parent))
+    return {
+        "exit_code": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "success": result.returncode == 0,
+    }
+
+
+@mcp.tool()
 def run_process(
     library: str = DEFAULT_LIBRARY,
     match_id: str = "",

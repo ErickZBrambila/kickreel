@@ -61,6 +61,8 @@ def main() -> None:
     p_enr.add_argument("--tracker", required=True, help="Path to KickReel Stats tracker JSON")
     p_enr.add_argument("--dry-run", action="store_true", help="Show matches without writing")
     p_enr.add_argument("--match-id", help="Only enrich this match ID")
+    p_enr.add_argument("--no-wall-clock", action="store_true", help="Disable wall-clock fallback for unmatched events")
+    p_enr.add_argument("--pad", type=int, default=15, help="Seconds before/after each wall-clock clip (default: 15)")
 
     # analyze
     p_ana = sub.add_parser("analyze", help="Parse .track files and store analytics in manifests")
@@ -112,6 +114,8 @@ def main() -> None:
             tracker_path=Path(args.tracker).expanduser(),
             dry_run=args.dry_run,
             match_id=args.match_id,
+            wall_clock_fallback=not args.no_wall_clock,
+            pad=args.pad,
         )
 
     elif args.cmd == "offload":

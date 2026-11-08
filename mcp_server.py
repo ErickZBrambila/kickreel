@@ -173,6 +173,8 @@ def run_enrich(
     library: str = DEFAULT_LIBRARY,
     match_id: str = "",
     dry_run: bool = False,
+    wall_clock_fallback: bool = True,
+    pad: int = 15,
 ) -> dict:
     """Tag clips with player names by matching tracker events to camera markers.
 
@@ -181,10 +183,12 @@ def run_enrich(
     Only sessions with .track files on their videos can be enriched.
 
     Args:
-        tracker:  Path to a KickReel Stats tracker JSON. Empty = auto-detect latest.
-        library:  Path to the local library (default: ~/Movies/KickReel)
-        match_id: Only enrich this match ID (empty = auto-match by date in tracker)
-        dry_run:  Show matches without writing to manifests
+        tracker:              Path to a KickReel Stats tracker JSON. Empty = auto-detect latest.
+        library:              Path to the local library (default: ~/Movies/KickReel)
+        match_id:             Only enrich this match ID (empty = auto-match by date in tracker)
+        dry_run:              Show matches without writing to manifests
+        wall_clock_fallback:  For unmatched events, extract clips via wallTimestamp offset (default: True)
+        pad:                  Seconds before/after each wall-clock clip (default: 15)
     """
     # Auto-detect tracker if not provided
     if not tracker:
@@ -208,6 +212,10 @@ def run_enrich(
         cmd += ["--match-id", match_id]
     if dry_run:
         cmd.append("--dry-run")
+    if not wall_clock_fallback:
+        cmd.append("--no-wall-clock")
+    if pad != 15:
+        cmd += ["--pad", str(pad)]
 
     result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(Path(__file__).parent))
     return {

@@ -2,10 +2,12 @@
 
 import json
 import re
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .manifest import load, save
+from .clip import probe_duration
+from .manifest import ClipRecord, load, save
 
 
 _TRACK_UTC_PAT = re.compile(r"UTC(\d+):(\d+):(\d+\.\d+)")
@@ -38,11 +40,42 @@ def _t0_actual_utc(session_date: str, h: int, m: int, s: float) -> datetime:
     return (local_naive - utc_offset).replace(tzinfo=timezone.utc)
 
 
+def _extract_wall_clock_clip(
+    video_path: Path,
+    t: float,
+    clips_dir: Path,
+    pad: int = 15,
+) -> Path | None:
+    """Cut a clip at video offset `t` using stream-copy (fast). Returns output path or None."""
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    duration = probe_duration(video_path)
+    start = max(0.0, t - pad)
+    end = min(duration, t + pad)
+    out = clips_dir / f"{video_path.stem}_clip_{int(t):04d}s.mp4"
+    if out.exists():
+        return out
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", str(start),
+        "-to", str(end),
+        "-i", str(video_path),
+        "-c", "copy",
+        "-avoid_negative_ts", "1",
+        str(out),
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        return None
+    return out
+
+
 def run(
     library: Path,
     tracker_path: Path,
     dry_run: bool = False,
     match_id: str | None = None,
+    wall_clock_fallback: bool = True,
+    pad: int = 15,
 ) -> None:
     print(f"\nKickReel enrich{'  [DRY RUN]' if dry_run else ''}\n")
 
@@ -165,6 +198,53 @@ def run(
                     print(
                         f"    [UNMATCHED]  tracker={int(ev_video_s)}s ({ev.get('minute', '?')}')  "
                         f"{ev.get('playerName', '')}  (nearest clip {nearest_delta:.0f}s away)"
+                    )
+
+            # Wall-clock fallback: for unmatched events, synthesize a clip at the
+            # exact video offset derived from wallTimestamp — no camera marker needed.
+            if wall_clock_fallback:
+                video_path = Path(video.local_path)
+                clips_dir = session_dir / "clips"
+                for ev, ev_video_s in sorted_events:
+                    if ev["id"] not in unmatched_event_ids:
+                        continue
+                    player = ev.get("playerName", "")
+                    half = ev.get("half", 1)
+                    tracker_minute = ev.get("minute", 0)
+                    new_label = f"H{half} {tracker_minute}' — {player}"
+                    assist = ev.get("assistPlayerName", "")
+                    if assist:
+                        new_label += f" ({assist})"
+                    if dry_run:
+                        from .clip import fmt
+                        start = max(0.0, ev_video_s - pad)
+                        end = ev_video_s + pad
+                        print(
+                            f"    [wall-clock dry-run]  {int(ev_video_s)}s ({tracker_minute}')  "
+                            f"{player}  →  {fmt(start)} – {fmt(end)}"
+                        )
+                        continue
+                    out = _extract_wall_clock_clip(video_path, ev_video_s, clips_dir, pad)
+                    if out is None:
+                        print(f"    [wall-clock] ffmpeg failed for {int(ev_video_s)}s — skipping")
+                        continue
+                    start = max(0.0, ev_video_s - pad)
+                    duration_v = video.duration or probe_duration(video_path)
+                    end = min(duration_v, ev_video_s + pad)
+                    clip_rec = ClipRecord(
+                        file_name=out.name,
+                        start_seconds=start,
+                        end_seconds=end,
+                        marker_time=ev_video_s,
+                        label=new_label,
+                        clip_type=ev.get("type", "highlight"),
+                        player_name=player,
+                        assist_player_name=assist,
+                    )
+                    video.clips.append(clip_rec)
+                    matched_total += 1
+                    print(
+                        f"    [wall-clock]  {int(ev_video_s)}s ({tracker_minute}')  → {new_label}"
                     )
 
             for ev, ev_video_s, clip, delta in assignments:

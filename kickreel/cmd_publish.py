@@ -188,6 +188,7 @@ def run(
             home_team="",   # already baked into corrected_name
             away_team="",
             existing_doc_id=existing_id,
+            note=manifest.note,
         )
         manifest.published = True
         manifest.sanity_doc_id = doc_id

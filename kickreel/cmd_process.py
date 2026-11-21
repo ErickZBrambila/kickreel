@@ -53,11 +53,12 @@ def run(library: Path, pad: int = 15, dry_run: bool = False, remove_watermark: b
 
             # Build MarkerEvent-like objects from the manifest records
             class _M:
-                def __init__(self, t: float):
-                    self.type = "click"
+                def __init__(self, t: float, mtype: str = "click", mlabel: str = ""):
+                    self.type = mtype
                     self.time_seconds = t
+                    self.label = mlabel
 
-            marker_objs = [_M(m["timeSeconds"]) for m in video.markers]
+            marker_objs = [_M(m["timeSeconds"], m.get("type", "click"), m.get("label", "")) for m in video.markers]
 
             if dry_run:
                 print(f"  [dry-run] would extract {len(marker_objs)} clip(s):")

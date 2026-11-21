@@ -141,15 +141,35 @@ def run(
             print(f"[skip] {manifest.session_name} — compilation already exists (use --force to rebuild)")
             continue
 
-        goal_clips = [
+        all_sorted_clips = [
             (session_dir / "clips" / c.file_name, c)
             for v in manifest.videos
             for c in sorted(v.clips, key=lambda x: x.marker_time)
-            if c.clip_type == "goal"
         ]
 
+        # Goal marker times from manifest (SoccerEvent auto-detection or enrich)
+        goal_marker_times = {
+            m["timeSeconds"]
+            for v in manifest.videos
+            for m in v.markers
+            if m.get("type") == "goal"
+        }
+
+        # Priority: enriched clip_type="goal" → proximity to a goal marker (±5s) → label prefix → all clips (0-0)
+        goal_clips = [(p, c) for p, c in all_sorted_clips if c.clip_type == "goal"]
+        if not goal_clips and goal_marker_times:
+            goal_clips = [
+                (p, c) for p, c in all_sorted_clips
+                if any(abs(c.marker_time - gt) <= 5 for gt in goal_marker_times)
+            ]
         if not goal_clips:
-            print(f"[skip] {manifest.session_name} — no goal clips (run enrich first)")
+            goal_clips = [(p, c) for p, c in all_sorted_clips if c.label.lower().startswith("goal")]
+        highlights_mode = not goal_clips  # 0-0 or no detectable goals — use all clips
+        if highlights_mode:
+            goal_clips = all_sorted_clips
+
+        if not goal_clips:
+            print(f"[skip] {manifest.session_name} — no clips found")
             continue
 
         date_str = manifest.session_date[:10]
@@ -161,20 +181,21 @@ def run(
             label_date = date_str
             file_date  = date_str.replace("-", "")
 
-        away = manifest.away_team if manifest.home_away == "home" else manifest.home_team
+        away = manifest.away_team  # XBotGo always stores North Legends as home_team
         away_safe = away.replace(" ", "").replace("/", "")
         home_score = manifest.goals_for if manifest.goals_for >= 0 else 0
         away_score = manifest.goals_against if manifest.goals_against >= 0 else 0
 
         goals_dir = session_dir / "goals"
         norm_dir  = goals_dir / "normalized"
-        out_name  = f"NorthLegends_vs_{away_safe}_{file_date}_Goals.mp4"
+        label_suffix = "Highlights" if highlights_mode else "Goals"
+        out_name  = f"NorthLegends_vs_{away_safe}_{file_date}_{label_suffix}.mp4"
         out_path  = goals_dir / out_name
 
         print(f"{'─'*50}")
         print(f"Session  : {manifest.session_name}  [{date_str}]")
         print(f"Score    : {home_score}–{away_score} vs {away}")
-        print(f"Goals    : {len(goal_clips)}")
+        print(f"{'Highlights' if highlights_mode else 'Goals'} : {len(goal_clips)}")
         for src, c in goal_clips:
             print(f"  {c.label}  ({src.name})")
 

@@ -61,6 +61,7 @@ class SessionManifest:
     h1_attack_side: str | None = None
     xbot_clip_paths: list[str] = field(default_factory=list)  # XBotGo confirmed-shot clips for jersey HSV calibration
     jersey_color: str = "red"  # team jersey color hint for HSV calibration: red|blue|orange|yellow|green|purple
+    note: str = ""  # optional coach/editor note shown on the session page
     videos: list[VideoRecord] = field(default_factory=list)
 
 

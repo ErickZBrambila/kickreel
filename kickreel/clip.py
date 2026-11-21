@@ -68,8 +68,6 @@ def extract_clips(
         vf = _watermark_filter(width, height)
 
     for marker in markers:
-        if marker.type != "click":
-            continue
         t = marker.time_seconds
         if any(abs(t - s) < 1.0 for s in seen):
             continue
@@ -108,13 +106,23 @@ def extract_clips(
             print(f"    Warning: ffmpeg failed for clip at {fmt(t)}")
             continue
 
+        # Use marker type as label prefix when it carries semantic meaning
+        marker_type = getattr(marker, "type", "click")
+        marker_label = getattr(marker, "label", None)
+        if marker_label:
+            label = marker_label
+        elif marker_type and marker_type not in ("click", "start"):
+            label = f"{marker_type} {fmt(t)}"
+        else:
+            label = f"Clip {clip_num} · {fmt(t)}"
+
         clips.append(Clip(
             video_file_name=video_path.name,
             output_path=out,
             start_seconds=start,
             end_seconds=end,
             marker_time=t,
-            label=f"Clip {clip_num} · {fmt(t)}",
+            label=label,
         ))
 
     return clips

@@ -11,7 +11,7 @@ Tools:
   get_pipeline_status — counts: offloaded / processed / published / needs attention
   run_process         — extract highlight clips from offloaded footage
   run_publish         — upload clips to R2 and push metadata to Sanity
-  query_sanity        — list practiceSession docs live on legends-pitch
+  query_sanity        — list gameSession + practiceSession docs live on legends-pitch
 
 Run:
   fastmcp run mcp_server.py
@@ -345,7 +345,7 @@ def run_publish(
 
 @mcp.tool()
 def query_sanity(team: str = "") -> list[dict]:
-    """List practiceSession documents published to legends-pitch via Sanity.
+    """List gameSession and practiceSession documents published to legends-pitch via Sanity.
 
     Args:
         team: Filter by team slug ("u11" or "u12"). Empty = all teams.
@@ -360,7 +360,7 @@ def query_sanity(team: str = "") -> list[dict]:
     import urllib.parse
     import requests
 
-    groq = '*[_type == "practiceSession"]{_id, sessionName, sessionType, sessionDate, "team": team->slug.current, "clipCount": length(videos[].clips[]), "videoCount": length(videos)}'
+    groq = '*[_type in ["practiceSession", "gameSession"]]{_id, sessionName, sessionType, sessionDate, "team": team->slug.current, "clipCount": length(videos[].clips[]), "videoCount": length(videos), compilationUrl, compilationTitle}'
     url = f"https://{project_id}.api.sanity.io/v2021-10-21/data/query/{dataset}?query={urllib.parse.quote(groq)}"
 
     try:

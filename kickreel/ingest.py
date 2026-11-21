@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -100,6 +101,35 @@ def load_sessions(source_dir: Path) -> list[MatchSession]:
 
             cover_path = data_dir / mp4.with_suffix(".cover").name
             track_path = data_dir / mp4.with_suffix(".track").name
+
+            # Parse [SoccerEvent] Submit entries from track file (fw 5.1+ auto-detection)
+            _SOCCER_TYPE_MAP = {"Goal": "goal", "CornerKick": "corner", "PenaltyKick": "penalty"}
+            _frame_re = re.compile(r"UTC\S+ fps(\d+) Frame(\d+)")
+            _event_re = re.compile(r"\[SoccerEvent\] Submit type=(\w+)")
+            if track_path.exists():
+                try:
+                    track_lines = track_path.read_text(errors="replace").splitlines()
+                    # Determine start frame from first header line
+                    start_frame, fps_track = 0, 20
+                    m0 = _frame_re.match(track_lines[0]) if track_lines else None
+                    if m0:
+                        fps_track, start_frame = int(m0.group(1)), int(m0.group(2))
+                    for idx, line in enumerate(track_lines):
+                        em = _event_re.search(line)
+                        if not em:
+                            continue
+                        ev_type = _SOCCER_TYPE_MAP.get(em.group(1))
+                        if ev_type is None:
+                            continue
+                        # find nearest previous frame header for timestamp
+                        for j in range(idx, max(0, idx - 20), -1):
+                            fm = _frame_re.match(track_lines[j])
+                            if fm:
+                                secs = (int(fm.group(2)) - start_frame) / fps_track
+                                markers.append(MarkerEvent(type=ev_type, time_seconds=round(secs, 2)))
+                                break
+                except Exception:
+                    pass
 
             video = VideoMeta(
                 file_name=mp4.name,

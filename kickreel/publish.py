@@ -27,6 +27,7 @@ def create_session_document(
     home_team: str = "",
     away_team: str = "",
     existing_doc_id: str = "",
+    note: str = "",
 ) -> str:
     doc_type = "gameSession" if session_type == "GAME" else "practiceSession"
     # Honour an existing Sanity document ID to avoid creating a duplicate on re-publish
@@ -110,6 +111,8 @@ def create_session_document(
     }
     if team_id:
         doc["team"] = {"_type": "reference", "_ref": team_id}
+    if note:
+        doc["note"] = note
 
     url = (
         f"https://{config.SANITY_PROJECT_ID}.api.sanity.io"
